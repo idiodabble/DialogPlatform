@@ -1,0 +1,148 @@
+s_Prompt
+* System to user utterance
+then user replies
+(1) user supplied information given
+> save it
+> grounding
+> next prompt
+(2) user supplied incomplete information
+> save it
+> grounding
+> prompt for rest
+(3) user wanted to redirect
+> go back one step redirect ("wait, no, changed my mind"): ground then reprompt
+> jump redirect to somewhere completely different, ground then prompt
+
+So there will always be:
+(1) prompt
+(2) info given, maybe for other slots, maybe incomplete
+(3) grounding
+(4) next prompt
+
+s - What city would you like to depart from?
+u - San Diego
+u - I'd like to depart from San Diego
+u - I'd like to depart from San Diego and arrive in Atlanta
+u - I'd like to depart from San Diego to Atlanta
+u - San Diego to Atlanta
+u - to Atlanta, from San Diego
+u - I'd like arrive in Atlanta, from San Diego
+
+u - San Diego is where I'd like to depart from
+# doesn't fit a regex but we should still pick it up 'cause it's a city
+u - I'm going to Atlanta # have to recognize it
+# it's a city, but a different slot
+
+u - I'm departing from San Diego and departing from Atlanta
+# expecting one but received two, what to do?
+
+s - What day and time would you like to leave?
+u - Sunday
+u - 1:00 pm
+u - Sunday, 1:00 pm
+u - Sunday at 1:00 pm
+
+variable: depart_city, arrival_city
+phrases:
+to | arrive (in | at) #{arrival_city}
+#{arrival_city} blah
+from #{depart_city}
+etc
+synonyms?
+
+also, what about varaible size info?
+s - What are your favorite colors?
+u - blue and red
+u - blue, red, green
+
+Variable
+> values: list of possible values
+> max_instances: number of values a user can have for this variable, default 1
+> ?extract from utterance?
+    default implementation is just a search for regex matches, but should be overwritable
+
+will also have a
+> response from user, list < word, probability > and the values selected
+
+could also have a "none of the above" value distinct from clarification ("please answer the question" distinct from "did you say san diego?")
+
+branching based on variable?
+s - What would you like to do?
+u - Book a flight 
+
+could make nextPrompt a method overwritable with some code for the branching, OR
+could have an associated nextPrompt for every variable value, and have them be same by default
+but how to handle multiple variables?
+nah, should just be coded: if blue and green then blah, else blah...
+
+is a slot an instantiation of an object, or a subclass of a class?
+
+departure = Slot.new
+departure.set_next_prompt = arrival # set_next_prompt returned by next_prompt
+# or this is just done in Slot.new(...)
+OR overwrite next_prompt
+def departure.next_prompt
+    if departure.response = blah
+        return blah
+    else
+        return blah
+    end
+end
+
+MAYBE???
+a slot can have multiple variables, a chain can have multiple slots
+
+OR???
+a slot can contain other slots...
+
+s - When would you like to fly?
+> contains month, day, and time slots, and next-prompt is "Which airline?"
+u - June 14th
+> time slot left, go to it
+s - What time of day would you like to fly?
+u - afternoon
+> now bubble back up
+s - Which airline?
+
+if it has multiple slots left to fill, it will go in order of the array
+also allow grounding for moving between levels of slot nesting?
+
+    problems with this?
+
+slot_one.run = Slot.new(...)
+# and more declarations
+
+while(true) do
+    slot_one.run
+    # do stuff based on results
+    slot_two.run
+    # so on
+
+this way has no next_prompt, you just write it out here
+
+how to handle jumping? out of web from places you can jump out of to places you can jump into, just make uniform?
+I think it's reasonable. in new(...) say if you allow jump in/out, and if they want something more particular than can just code it themselves
+will need a global hash of slots to be able to handle jumping
+pr of jumping < pr of normally entering that slot
+
+I think I have what I need to start!
+remember: name, values (+pr), max_instances, extract (default: regex matching), inner slots, groundings (+pr), repeat/clarification (+pr), jump pr, too-many-instances response
+values can have responses, i.e. u-blue, s-I like blue too! (useful for NOTA value)
+
+how to determine what to do: instead of fully probablistic, just do first most expected thing past threshold likelihood
+> was prompt answered?
+if not past threshold, then:
+> was prompt partially answered?
+> were different slots filled?
+> did he want to go back?
+> did he want to go elsewhere?
+
+grounding:
+#{value} was registered for the #{name}
+#{value}, okay | alright | sure | cool
+okay | alright | sure | cool
+(nothing)
+
+indicators that system was mistaken:
+> "I said"
+> similarity to previous utterance
