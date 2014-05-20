@@ -26,6 +26,7 @@ class Slot
     def run
         prompt
         while(true)
+# TODO: get probabilities from utterance
             @utterance = gets.chomp.downcase
             extract_selection_from_speech
             if @confidence >= @extract_threshold
