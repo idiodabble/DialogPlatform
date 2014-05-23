@@ -6,6 +6,8 @@
 Value = Struct.new(:value, :likelihood, :phrasings, :response, :next_slot)
 
 class Variable
+    attr_accessor :name, :values, :prob_mass, :max_selection, :selection
+
     # name: name of the variable, such as 'departure city'
     # values: can be an array of Values, see above
     #         or it can be an array of strings such as ['San Diego', 'San Fransisco', 'Sacramento']
@@ -29,22 +31,6 @@ class Variable
         @prob_mass = @values.map(&:likelihood).reduce(:+)
         @max_selection = max_selection
         @selection = nil
-    end
-
-    def values
-        @values
-    end
-
-    def name
-        @name
-    end
-
-    def prob_mass
-        @prob_mass
-    end
-
-    def max_selection
-        @max_selection
     end
 
     def precondition
@@ -97,10 +83,9 @@ class Slot
         while(true)
             extract_selection(@utterances.last)
             if @confidence >= @extract_threshold
-                selection_reaction
                 break
             elsif @confidence >= @clarify_threshold
-                return true if did_you_say_reaction
+                break if did_you_say_reaction
             else
                 #TODO: return false
                 run_clarification
@@ -108,6 +93,7 @@ class Slot
             end
             @repetitions += 1
         end
+        selection_reaction
         return true
     end
 
@@ -116,22 +102,21 @@ class Slot
     end
 
     def apologetic(prompt)
-        #puts sorry_words[@repetitions % sorry_words.size].capitalize + ', ' + prompt[0].downcase + prompt[1..-1]
-        puts sorry_words[@repetitions % sorry_words.size].capitalize + ', ' + prompt
+        #puts Utility.sorry_words[@repetitions % Utility.sorry_words.size].capitalize + ', ' + prompt[0].downcase + prompt[1..-1]
+        puts Utility.sorry_words[@repetitions % Utility.sorry_words.size].capitalize + ', ' + prompt
     end
 
     def did_you_say_reaction
         puts apologetic("I didn't hear you, did you say #{english_list(@selections.map(&:value))}?")
-        old_selections = @selections
         @utterances << get_input
         line = @utterances.last.map(&:word).join(' ')
-        if no_set.include? line
+        if Utility.no_set.include? line
             repetition_likelihood(@values - @selections)
             puts "Oh, what did you mean?"
             @utterances << get_input
-        elsif no_set.find{|no_word| line[no_word] != nil} != nil
+        elsif Utility.no_set.find{|no_word| line[no_word] != nil} != nil
             repetition_likelihood(@values - @selections)
-        elsif yes_set.find{|no_word| line[no_word] != nil} != nil
+        elsif Utility.yes_set.find{|no_word| line[no_word] != nil} != nil
             return true
         else
             repetition_likelihood(@selections)
@@ -177,21 +162,12 @@ class Slot
                 "#{english_list(@selections.map(&:value))} were registered for the #{@name}."
             end
         when 2
-            "#{english_list(@selections.map(&:value))}, #{affirmation_words.sample}."
+            "#{english_list(@selections.map(&:value))}, #{Utility.affirmation_words.sample}."
         when 3
-            affirmation_words.sample.capitalize + '.'
+            Utility.affirmation_words.sample.capitalize + '.'
         end
     end
 
-    def affirmation_words
-        ['okay', 'alright', 'sure', 'cool']
-    end
-
-    def sorry_words
-        ['sorry', 'apologies', 'excuse me', 'truly sorry', 'my apologies', 'pardon me', 'my sincerest apologies', 'begging forgiveness']
-    end
-
-    # returns 'green, purple, and red' for ['green', 'purple', 'red']
     def english_list(list)
         if list.size == 0
             'nothing'
@@ -226,15 +202,26 @@ class Slot
         end
         puts "hey " + @confidence.to_s
     end
+end
 
-    def yes_set
+class Utility
+    def self.affirmation_words
+        ['okay', 'alright', 'sure', 'cool']
+    end
+
+    def self.sorry_words
+        ['sorry', 'apologies', 'excuse me', 'truly sorry', 'my apologies', 'pardon me', 'my sincerest apologies', 'begging forgiveness']
+    end
+    def self.yes_set
         ['yes', 'yep', 'yeah', 'yea', 'aye', 'affirmative', 'definitely', 'certainly', 'positively']
     end
 
-    def no_set
+    def self.no_set
         ['no', 'nope', 'nah', 'nay', 'negative', 'nix', 'never', 'not at all', 'not in the slightest', 'not by any means']
     end
 end
+
+    # returns 'green, purple, and red' for ['green', 'purple', 'red']
 
 # TODO: when extracting multiple slots at a time, need to ignore overlapped values. e.g.:
 # say cities for departure and destination are the same, and say
@@ -243,6 +230,7 @@ end
 # we ignore instances of /#{value}/ completely and only look for the ones with 'from' or 'to'
 # and if it doesn't find anything, have a special disambiguation_response
 
+# Prompts for more than one piece of information at a time
 class MultiSlot
     def initialize(variables, prompts, extract_threshold = 0.6, clarify_threshold = 0.3)
         @variables = variables
@@ -254,3 +242,6 @@ class MultiSlot
         @confidence = -1
     end
 end
+
+# class SlotGroup ?
+# is there a need for a tree class or will that just fall out of how you write it?

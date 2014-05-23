@@ -1,24 +1,3 @@
-s_Prompt
-* System to user utterance
-then user replies
-(1) user supplied information given
-> save it
-> grounding
-> next prompt
-(2) user supplied incomplete information
-> save it
-> grounding
-> prompt for rest
-(3) user wanted to redirect
-> go back one step redirect ("wait, no, changed my mind"): ground then reprompt
-> jump redirect to somewhere completely different, ground then prompt
-
-So there will always be:
-(1) prompt
-(2) info given, maybe for other slots, maybe incomplete
-(3) grounding
-(4) next prompt
-
 s - What city would you like to depart from?
 u - San Diego
 u - I'd like to depart from San Diego
@@ -172,6 +151,8 @@ priority of next_slot: first, specific value's next_slot, then it's the overall 
 both are slot groups, important because you need to fill them out all-or-nothing (they all get added to priority list)
 difference is whether it has simultaneous question/responses or not
 also, need to save filled slots for a group in case they jump away and then later come back to it
+
+maybe: slot group is higher level structure above slots and simultaneous slots
 
 need to know what you're asking for currently in case of overlapping values (destination + departure)
 ...welp, can only fill in what's in the slot group
