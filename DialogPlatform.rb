@@ -101,22 +101,17 @@ class Slot
         puts @prompts[@run_count % @prompts.size]
     end
 
-    def apologetic(prompt)
-        #puts Utility.sorry_words[@repetitions % Utility.sorry_words.size].capitalize + ', ' + prompt[0].downcase + prompt[1..-1]
-        puts Utility.sorry_words[@repetitions % Utility.sorry_words.size].capitalize + ', ' + prompt
-    end
-
     def did_you_say_reaction
-        puts apologetic("I didn't hear you, did you say #{english_list(@selections.map(&:value))}?")
+        puts Util.apologetic("I didn't hear you, did you say #{Util.english_list(@selections.map(&:value))}?")
         @utterances << get_input
         line = @utterances.last.map(&:word).join(' ')
-        if Utility.no_set.include? line
+        if Util.no_set.include? line
             repetition_likelihood(@values - @selections)
             puts "Oh, what did you mean?"
             @utterances << get_input
-        elsif Utility.no_set.find{|no_word| line[no_word] != nil} != nil
+        elsif Util.no_set.find{|no_word| line[no_word] != nil} != nil
             repetition_likelihood(@values - @selections)
-        elsif Utility.yes_set.find{|no_word| line[no_word] != nil} != nil
+        elsif Util.yes_set.find{|no_word| line[no_word] != nil} != nil
             return true
         else
             repetition_likelihood(@selections)
@@ -125,7 +120,7 @@ class Slot
     end
 
     def run_clarification
-        puts apologetic("I'm not sure what you said, could you repeat your response?")
+        puts Util.apologetic("I'm not sure what you said, could you repeat your response?")
         repetition_likelihood(@selections)
         run_cycle
     end
@@ -159,22 +154,12 @@ class Slot
             if @selections.size <= 1
                 "#{@selections.first.value} was registered for the #{@name}."
             else
-                "#{english_list(@selections.map(&:value))} were registered for the #{@name}."
+                "#{Util.english_list(@selections.map(&:value))} were registered for the #{@name}."
             end
         when 2
-            "#{english_list(@selections.map(&:value))}, #{Utility.affirmation_words.sample}."
+            "#{Util.english_list(@selections.map(&:value))}, #{Util.affirmation_words.sample}."
         when 3
-            Utility.affirmation_words.sample.capitalize + '.'
-        end
-    end
-
-    def english_list(list)
-        if list.size == 0
-            'nothing'
-        elsif list.size == 1
-            list.first
-        else
-            list[0...-1].join(', ') + ' and ' + list[-1]
+            Util.affirmation_words.sample.capitalize + '.'
         end
     end
 
@@ -204,7 +189,22 @@ class Slot
     end
 end
 
-class Utility
+class Util
+    def self.english_list(list)
+        if list.size == 0
+            'nothing'
+        elsif list.size == 1
+            list.first
+        else
+            list[0...-1].join(', ') + ' and ' + list[-1]
+        end
+    end
+
+    def self.apologetic(prompt)
+        #puts Util.sorry_words[@repetitions % Util.sorry_words.size].capitalize + ', ' + prompt[0].downcase + prompt[1..-1]
+        puts Util.sorry_words[@repetitions % Util.sorry_words.size].capitalize + ', ' + prompt
+    end
+
     def self.affirmation_words
         ['okay', 'alright', 'sure', 'cool']
     end
@@ -212,6 +212,7 @@ class Utility
     def self.sorry_words
         ['sorry', 'apologies', 'excuse me', 'truly sorry', 'my apologies', 'pardon me', 'my sincerest apologies', 'begging forgiveness']
     end
+
     def self.yes_set
         ['yes', 'yep', 'yeah', 'yea', 'aye', 'affirmative', 'definitely', 'certainly', 'positively']
     end
