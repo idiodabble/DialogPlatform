@@ -146,3 +146,89 @@ okay | alright | sure | cool
 indicators that system was mistaken:
 > "I said"
 > similarity to previous utterance
+
+
+SIMILARITY FUNCTION
+default: edit distance
+we should ask "did you mean san fransisco?" if they type "sand fransisco"
+also, increase probability of anything similar, like "san" increase "san diego" and "san fransisco"
+
+
+JUMPING
+jump_into_here_likelihood = #, can be 0
+jump_outta_here_likelihood = #, can be 0
+jump function: likelihood of jumping towards siblings, parent, cousins, grandparent, 2nd cousins... etc
+
+anything more specific than those they can add themselves
+
+by default, anyone in a slot group can jump to anyone else, but you can't get inside one of them from outside the group
+
+Important:
+if jumping around, have to send user to remaining spots and not repeat anything
+so, need to maintain a list of slots that need to be filled. And there could be slot dependencies: A must be filled before B, so you can't jump to anything later than B
+
+priority of next_slot: first, specific value's next_slot, then it's the overall next_slot for Slot or remaining stuff for Multislot
+
+both are slot groups, important because you need to fill them out all-or-nothing (they all get added to priority list)
+difference is whether it has simultaneous question/responses or not
+also, need to save filled slots for a group in case they jump away and then later come back to it
+
+need to know what you're asking for currently in case of overlapping values (destination + departure)
+...welp, can only fill in what's in the slot group
+
+also, there's a difference between
+s - When are you flying?
+u - the 18th
+s - You have yet to give us a year, month or time of day
+u - this year, June
+s - You have yet to give us a time of day
+and what I was originally planning with slot groups:
+s - When are you flying?
+u - the 18th
+s - What year are you flying?
+u - this year
+s- What month are you flying?
+
+screw the latter. First should be doable, basically recursive after first step
+
+question: how to handle conditionally existing slots?
+maybe seat class slot only happens if airline is delta; what if you skip the airline question and come back to it? what if you choose SW and then later change to delta? Or choose delta then change to SW?
+the condition check has to happen at the beginning of the slot and if false, not do anything
+
+condition that must be true for variable to get filled versus
+condition that must be true for variable to need filling
+
+one way to do it: have a single precondition, always check it, but only not do it if it's the last thing to do and you still can't
+
+dependcy example: seating class must be filled before seat number
+
+ALSO: let value for a variable be any number
+
+could have a reset_likelihoods to set back to initial values
+
+ALSO: keep looking for slots that have already been filled, just in case we got it wrong (unless you grounded it... but if you do clarify it, have to allow changes)
+
+also: making wrappers for every method might be good for users doing overwriting, easier than having to alias everything they want to conditionally keep. Ex:
+def run
+    d_run
+end
+(d stands for default)
+
+
+allow user to decide whether to do too_many_response or to just take highest rated options
+
+Slot Group can require that all slots be filled out or not
+
+
+other grounding:
+And, question?
+
+need to be able to go back on "No I wanted San Diego" for departure when moved on to arrival
+
+should be able to say:
+"Sorry, there are no flights for 8:00 am. However, there are flights for 7:00 am and 9:00 am."
+
+also there's the case of
+"Actually, I want to change my destination to San Diego" after already moved on to time
+has to recognize change of slot AND value for that slot
+(also, decrease likelihood of original choice when going back to a slot)
