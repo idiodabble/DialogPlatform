@@ -1,16 +1,18 @@
 require './DialogPlatform'
 
-Departure = Slot.new('departure', ['Where would you like to depart from?', 'What\'s your departure?'], ['San Diego', 'San Francisco', 'Los Angeles', 'Sacramento'])
+depart_var = Variable.new('departure', ['San Diego', 'San Francisco', 'Los Angeles', 'Sacramento'])
+depart_slot = Slot.new(depart_var, ['Where would you like to depart from?', 'What\'s your departure?'])
 #def Departure.phrasings(value)
 #    [/^#{value}.$/, /from #{value}/]
 #end
 
-Destination = Slot.new('destination', ['What is your destination?'], ['Miami', 'New York', 'Atlanta', 'Philadelphia'])
+dest_var = Variable.new('destination', ['Miami', 'New York', 'Atlanta', 'Philadelphia'])
+dest_slot = Slot.new(dest_var, ['What is your destination?'])
 #def Destination.phrasings(value)
 #    [
 #end
 
 while(true)
-    Departure.run
-    Destination.run
+    depart_slot.run
+    dest_slot.run
 end
