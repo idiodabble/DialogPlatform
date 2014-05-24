@@ -1,3 +1,5 @@
+DEBUG = true
+
 # value: a string such as 'San Diego'
 # likelihood: likelihood of this value being selected relative to other values; does not need to be a probability
 # phrasings: array of regular expressions representing phrases that would indicate that the user is selecting this value
@@ -21,7 +23,7 @@ class Variable
         @name = name
         @values = values.map {|value|
             if value.is_a?(String)
-                Value.new(value, 1.0 / values.size, [/#{value.downcase}/], nil, nil)
+                Value.new(value, 1.0 / values.size, nil, nil, nil)
             elsif value.is_a?(Value)
                 Value
             else
@@ -33,6 +35,35 @@ class Variable
         @selection = nil
     end
 
+    #TODO: figure out a way to never have to write value.value
+    def phrasings(value)
+        [/#{value.value.downcase}/]
+    end
+
+    def response
+        nil
+    end
+
+    def did_you_say_prompt(selections)
+        "I didn't hear you, did you say #{Util.english_list(selections.map(&:value))}?"
+    end
+
+    # degree is a number 0 to 3 determining how much grounding to use. 0 is none, 3 is the most verbose
+    def grounding(selections, degree = 1)
+        case degree
+        when 1
+            if selections.size <= 1
+                "#{selections.first.value} was registered for the #{name}."
+            else
+                "#{Util.english_list(selections.map(&:value))} were registered for the #{name}."
+            end
+        when 2
+            "#{Util.english_list(selections.map(&:value))}, #{Util.affirmation_words.sample}."
+        when 3
+            Util.affirmation_words.sample.capitalize + '.'
+        end
+    end
+
     def precondition
         return true
     end
@@ -41,6 +72,14 @@ end
 # Every word has an associated confidence that it is what we think it is.
 # Confidence must be in the range of (0, 1]
 Word = Struct.new(:word, :confidence)
+
+# An Utterance is an array of Words.
+# Call line to get a string version of the utterance.
+class Utterance < Array
+    def line
+        self.map(&:word).join(' ')
+    end
+end
 
 class Slot
     # prompts: an array of possible prompts
@@ -52,14 +91,10 @@ class Slot
     #    and let somebody else figure out what to do
     # utterances: array containing every utterance the user has said. An utterance is an array of Words
     def initialize(variable, prompts, extract_threshold = 0.6, clarify_threshold = 0.3)
-        @name = variable.name
-        @values = variable.values
-        @prob_mass = variable.prob_mass
-        @max_selection = variable.max_selection
+        @variable = variable
         @prompts = prompts
         @extract_threshold = extract_threshold
         @clarify_threshold = clarify_threshold
-# TODO: clean up this having to do .map(&:word).join(' ') business
         @utterances = []
         @run_count = 0
         @repetitions = 0
@@ -72,10 +107,14 @@ class Slot
         run_cycle
     end
 
+    def prompt
+        puts @prompts[@run_count % @prompts.size]
+    end
+
 # TODO: for input 'san diego (0.4)' does 0.4 apply to both words or just 'diego'? how to handle?
     def get_input
         line = gets.chomp.downcase
-        line.scan(/(\S+)\s?(\([\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1) : Word.new(word, confidence[1...-1].to_f)}
+        Utterance.new(line.scan(/(\S+)\s?(\([\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1) : Word.new(word, confidence[1...-1].to_f)})
     end
 
     def run_cycle
@@ -97,20 +136,16 @@ class Slot
         return true
     end
 
-    def prompt
-        puts @prompts[@run_count % @prompts.size]
-    end
-
     def did_you_say_reaction
-        puts Util.apologetic("I didn't hear you, did you say #{Util.english_list(@selections.map(&:value))}?")
+        puts apologetic(@variable.did_you_say_prompt(@selections))
         @utterances << get_input
-        line = @utterances.last.map(&:word).join(' ')
+        line = @utterances.last.line
         if Util.no_set.include? line
-            repetition_likelihood(@values - @selections)
+            repetition_likelihood(@variable.values - @selections)
             puts "Oh, what did you mean?"
             @utterances << get_input
         elsif Util.no_set.find{|no_word| line[no_word] != nil} != nil
-            repetition_likelihood(@values - @selections)
+            repetition_likelihood(@variable.values - @selections)
         elsif Util.yes_set.find{|no_word| line[no_word] != nil} != nil
             return true
         else
@@ -119,57 +154,49 @@ class Slot
         return false
     end
 
+    def clarification_prompt
+        puts apologetic("I'm not sure what you said, could you repeat your response?")
+    end
+
     def run_clarification
-        puts Util.apologetic("I'm not sure what you said, could you repeat your response?")
+        clarification_prompt
         repetition_likelihood(@selections)
         run_cycle
     end
 
     def repetition_likelihood(selections)
         selections.each{|selection|
-            @prob_mass += selection.likelihood
+            @variable.prob_mass += selection.likelihood
             selection.likelihood *= 2
         }
     end
 
     def selection_reaction
-        @selections.each{|selection| puts selection.response}
-        if @run_count > 1
-            puts grounding(2)
+        responses = @selections.map(&:response).compact
+        if responses.empty?
+            puts @variable.response unless @variable.response.nil?
         else
-            puts grounding(1)
+            responses.each{|response| puts response}
+        end
+        if @run_count > 1
+            puts @variable.grounding(@selections, 2)
+        else
+            puts @variable.grounding(@selections, 1)
         end
     end
 
 #    def too_many_response
 #        puts "I was looking for at most #{max_selections} responses, but I heard #{@selections.size}: #{english_list(@selections)}. Which of these would you like?"
         #change probabilities
-#    end
-
-    # degree is a number 0 to 3 determining how much grounding to use. 0 is none, 3 is the most verbose
-# rename acknowledgement_grounding?
-    def grounding(degree)
-        case degree
-        when 1
-            if @selections.size <= 1
-                "#{@selections.first.value} was registered for the #{@name}."
-            else
-                "#{Util.english_list(@selections.map(&:value))} were registered for the #{@name}."
-            end
-        when 2
-            "#{Util.english_list(@selections.map(&:value))}, #{Util.affirmation_words.sample}."
-        when 3
-            Util.affirmation_words.sample.capitalize + '.'
-        end
-    end
 
     # returns 0 if it couldn't find anything at all,
     # otherwise returns confidence probability
     def extract_selection(utterance)
 # TODO: use edit distance
-        line = utterance.map(&:word).join(' ')
-        selections = @values.map { |value|
-            phrasing_index = value.phrasings.find_index{|phrasing| line[phrasing] != nil}
+        line = utterance.line
+        selections = @variable.values.map { |value|
+            phrasings = value.phrasings.nil? ? @variable.phrasings(value) : value.phrasings
+            phrasing_index = phrasings.find_index{|phrasing| line[phrasing] != nil}
             [value, phrasing_index] unless phrasing_index.nil?
         }.compact
 # orders the selections by probability, then by most recently said in utterance
@@ -177,7 +204,7 @@ class Slot
             first_order = b[0].likelihood <=> a[0].likelihood
             first_order == 0 ? b[1] <=> b[1] : first_order
         }
-        @selections = selections.map{|value, phrasing_index| value}.first @max_selection
+        @selections = selections.map{|value, phrasing_index| value}.first @variable.max_selection
 # BIGGEST TODO: use probabilities to get confidence, right now I've just got a mind boggling stupid hack
         if @selections.size == 0
             @confidence = 0
@@ -185,11 +212,21 @@ class Slot
             @confidence = utterance.map(&:confidence).reduce(:+) / utterance.size
             @confidence = (@confidence + @selections.first.likelihood) / 2
         end
-        puts "hey " + @confidence.to_s
+        puts "(DEBUG) confidence: " + @confidence.to_s if DEBUG
+    end
+
+    def apologetic(prompt)
+        if @repetitions < 1
+            puts prompt
+        else
+            #puts Util.sorry_words[@repetitions % Util.sorry_words.size].capitalize + ', ' + prompt[0].downcase + prompt[1..-1]
+            puts Util.sorry_words[(@repetitions - 1) % Util.sorry_words.size].capitalize + ', ' + prompt
+        end
     end
 end
 
 class Util
+    # returns 'green, purple, and red' for ['green', 'purple', 'red']
     def self.english_list(list)
         if list.size == 0
             'nothing'
@@ -198,11 +235,6 @@ class Util
         else
             list[0...-1].join(', ') + ' and ' + list[-1]
         end
-    end
-
-    def self.apologetic(prompt)
-        #puts Util.sorry_words[@repetitions % Util.sorry_words.size].capitalize + ', ' + prompt[0].downcase + prompt[1..-1]
-        puts Util.sorry_words[@repetitions % Util.sorry_words.size].capitalize + ', ' + prompt
     end
 
     def self.affirmation_words
@@ -222,8 +254,6 @@ class Util
     end
 end
 
-    # returns 'green, purple, and red' for ['green', 'purple', 'red']
-
 # TODO: when extracting multiple slots at a time, need to ignore overlapped values. e.g.:
 # say cities for departure and destination are the same, and say
 # the phrasings for destination are   [/#{value}/, /from #{value}/]
@@ -241,6 +271,42 @@ class MultiSlot
         @utterances = []
         @run_count = 0
         @confidence = -1
+    end
+
+    def run
+        @run_count += 1
+        prompt
+        run_cycle
+    end
+
+    def prompt
+        puts @prompts[@run_count % @prompts.size]
+    end
+
+# TODO: for input 'san diego (0.4)' does 0.4 apply to both words or just 'diego'? how to handle?
+    def get_input
+        line = gets.chomp.downcase
+        line.scan(/(\S+)\s?(\([\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1) : Word.new(word, confidence[1...-1].to_f)}
+    end
+
+# if any selections were found with high confidence, ask for remaining ones, and raise probability of low confidence selections
+# if not, run did_you_mean on highest confidence, latest said selection
+    def run_cycle
+        @utterances << get_input
+        while(true)
+            extract_selection(@utterances.last)
+# TODO: ask for remaining variables
+            if @confidence >= @extract_threshold
+                break
+            elsif @confidence >= @clarify_threshold
+                break if did_you_say_reaction
+            else
+                return true
+            end
+            @repetitions += 1
+        end
+        selection_reaction
+        return true
     end
 end
 
