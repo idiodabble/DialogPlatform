@@ -1,3 +1,14 @@
+# Prioritized TODO list
+
+# to finish up the routing logic of Multislot, I need to:
+# 1. write the code for handling user trying to change previous slots
+# 2. debugging
+# 3. cleanup variable or method names to be more clear (like extractions and selections and whether they should be plural or singular, etc)
+
+# biggest ticket items besides the routing, which Jeremy could work on if he likes:
+# 1. everything to do with probability (right now I just have arbitrary hacks, like when I want something to become more likely right now I just double the scores)
+# 2. edit distance
+
 DEBUG = true
 
 # value: a string such as 'San Diego'
@@ -40,10 +51,6 @@ class Variable
 
     def response
         nil
-    end
-
-    def did_you_say_prompt(extractions)
-        "I didn't hear you, did you say #{Util.english_list(extractions.map(&:value))}?"
     end
 
     # degree is a number 0 to 3 determining how much grounding to use. 0 is none, 3 is the most verbose
@@ -138,7 +145,8 @@ class Slot
             elsif @confidence >= @clarify_threshold
                 break if did_you_say_reaction
             else
-                #TODO: return false
+                #TODO: return false, so coder deccides whether to use run_clarification or do something else,
+                # because maybe the user is trying to jump
                 run_clarification
                 return true
             end
@@ -146,6 +154,10 @@ class Slot
         end
         selection_reaction
         return true
+    end
+
+    def did_you_say_prompt(extractions)
+        "I didn't hear you, did you say #{Util.english_list(extractions.map(&:value))}?"
     end
 
     def did_you_say_reaction
@@ -166,6 +178,14 @@ class Slot
         return false
     end
 
+# TODO: make this actually good
+    def repetition_likelihood(extractions)
+        extractions.each{|extraction|
+            @variable.prob_mass += selection.likelihood
+            extraction.likelihood *= 2
+        }
+    end
+
     def clarification_prompt
         puts apologetic("I'm not sure what you said, could you repeat your response?")
     end
@@ -176,20 +196,13 @@ class Slot
         run_cycle
     end
 
-    def repetition_likelihood(extractions)
-        extractions.each{|extraction|
-            @variable.prob_mass += selection.likelihood
-            extraction.likelihood *= 2
-        }
-    end
-
     def selection_reaction
         responses = @extractions.map(&:response).compact
-        if responses.empty?
-            puts @variable.response unless @variable.response.nil?
-        else
-            responses.each{|response| puts response}
-        end
+        # value specific responses
+         responses.each{|response| puts response}
+        # general variable response 
+        puts @variable.response unless @variable.response.nil?
+        # more succinct in following runs
         if @run_count > 1
             puts @variable.grounding(@extractions, 2)
         else
@@ -282,15 +295,26 @@ class MultiSlot
     # extractions refer to any possible selection of values we think the user might be making from their utterance
     # selections refer to extractions that we believe are true
     # both are hashes from Variable to Selection
-    def initialize(variables, prompts, variables_needed = variables, extract_threshold = 0.6, change_threshold = 0.6)
+    def initialize(variables, prompts, variables_needed = variables, extract_threshold = 0.6, clarify_threshold = 0.3, change_threshold = 0.6)
         @variables = variables
         @prompts = prompts
         @extract_threshold = extract_threshold
+        @clarify_threshold = clarify_threshold
         @change_threshold = change_threshold
         @utterances = []
         @run_count = 0
         @selections = {}
         @variables_needed = variables_needed
+    end
+
+    # not intended for overwrite, just here for convenience
+    def @remaining_needed_vars
+        @variables_needed - @selections.keys
+    end
+
+    # not intended for overwrite, just here for convenience
+    def @remaining_vars
+        @variables - @selection.keys
     end
 
     def run
@@ -309,12 +333,6 @@ class MultiSlot
         line.scan(/(\S+)\s?(\([\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1) : Word.new(word, confidence[1...-1].to_f)}
     end
 
-# if any extractions were found with high confidence, ask for remaining ones, and raise probability of low confidence extractions
-# if not, run did_you_mean on highest confidence, latest said selection
-# OR: just run remaining_vars, and introduce apologetic/did_you_mean only on repeated runs that learned nothing
-
-# ALSO: how to handle changing previous slots?
-# check for change (change____var name: value), if accept, ask for confirmation, if yes change it, if no reduce likelihood
     def run_cycle
         @utterances << get_input
         while(true)
@@ -329,6 +347,7 @@ class MultiSlot
                     if selections.nil?
                         @selections[variable] = extractions
                         extracted_something = true
+                        selection_reaction(variable, extractions)
                     elsif extractions.confidence > selections.confidence
                         replace_response(selections, extractions, variable)
                         @selections[variable] = extractions
@@ -336,24 +355,28 @@ class MultiSlot
                     end
                 end
             }
-            remaining_vars = @variables_needed - @selections.keys
             if false
-# first, detect if trying to change
+# check for change (change____var name: value), if accept, ask for confirmation, if yes change it, if no reduce likelihood
 # also: handle "Flying on the 17th and change my destinatino to San Diego"?
             else
-                if remaining_vars.empty?
+                if @remaining_needed_vars.empty?
                     break
                 elsif extracted_something
-# run remaining_vars prompt
+                    remaining_vars_prompt
+                    @utterances << get_input
                 else
-# see if you can run a did_you_mean prompt
-# if not, run remaining_vars prompt with extra grounding
+                    best_extraction = @extractions.values.reduce{|a,b| a.confidence > b.confidence ? a : b}
+                    if best_extraction.confidence >= clarify_threshold
+                        break if did_you_say_reaction(best_extraction)
+                    else
+                        extracted_nothing_prompt
+                        @utterances << get_input
+                    end
                 end
             end
             @repetitions += 1
         end
-#TODO: an unneeded and unanswered variable uses its default value if its default value is not nil
-        selection_reaction
+        final_selection_reaction
         return true
     end
 
@@ -371,7 +394,6 @@ class MultiSlot
             first_order == 0 ? b[1] <=> b[1] : first_order
         }
         extractions = extractions.map{|value, phrasing_index| value}.first variable.max_selection
-# BIGGEST TODO: use probabilities to get confidence, right now I've just got a mind boggling stupid hack
         if extractions.size == 0
             confidence = 0
         else
@@ -381,12 +403,106 @@ class MultiSlot
         puts "(DEBUG) confidence: " + @confidence[variable].to_s if DEBUG
     end
 
+    def remaining_vars_prompt
+        puts "What is your #{english_list(remaining_vars.map(&:name))}?"
+    end
+
+    def extracted_nothing_prompt
+        puts apologetic("I didn't understand.")
+        remaining_vars_prompt
+    end
+
+# BIGGEST TODO: use probabilities to get confidence, right now I've just got a mind boggling stupid hack
     def calc_confidence(utterance, extractions)
         confidence = utterance.map(&:confidence).reduce(:+) / utterance.size
         (confidence[variable] + extractions[variable].first.likelihood) / 2
     end
 
     def replace_response(old_selections, new_selections, variable)
+# TODO
+    end
+
+    def final_selection_reaction
+# TODO: change this to be more succinct, i.e. "Okay, this this and that were registered for this this and that"
+# currently it's more of a placeholder that's redundant with the selection_reactions during the dialog
+        @variables.each {|variable|
+            if @extractions[variable].nil?
+                #an unneeded and unanswered variable uses its default value if it has one
+                selection_reaction(variable, variable.default_value) unless variable.default_value.nil?
+            else
+                selection_reaction(variable, @extractions[variable])
+            end
+        }
+    end
+
+    def selection_reaction(variable, value)
+        responses = @extractions.map(&:response).compact
+        # value specific responses
+         responses.each{|response| puts response}
+        # general variable response 
+        puts @variable.response unless @variable.response.nil?
+        # more succinct in following runs
+        if @run_count > 1
+            puts @variable.grounding(@extractions, 2)
+        else
+            puts @variable.grounding(@extractions, 1)
+        end
+    end
+
+    def did_you_say_prompt(extractions)
+        "I didn't hear you, did you say #{Util.english_list(extractions.map(&:value))}?"
+    end
+
+    def did_you_say_reaction(extractions)
+        puts apologetic(@variable.did_you_say_prompt(extractions))
+        @utterances << get_input
+        line = @utterances.last.line
+        if Util.no_set.include? line
+            repetition_likelihood(@variable.values - extractions)
+            puts "Oh, what did you mean?"
+            @utterances << get_input
+        elsif Util.no_set.find{|no_word| line[no_word] != nil} != nil
+            repetition_likelihood(@variable.values - @extractions)
+        elsif Util.yes_set.find{|no_word| line[no_word] != nil} != nil
+            return true
+        else
+            repetition_likelihood(extractions)
+        end
+        return false
+    end
+
+# TODO: make this actually good
+    def repetition_likelihood(extractions)
+        extractions.each{|extraction|
+            @variable.prob_mass += selection.likelihood
+            extraction.likelihood *= 2
+        }
+    end
+
+    # degree is a number 0 to 3 determining how much grounding to use. 0 is none, 3 is the most verbose
+    # TODO: change selections so it's the multislot hash version
+    def grounding(selections, degree = 1)
+        case degree
+        when 1
+            if selections.size <= 1
+                "#{selections.first.value} was registered for the #{name}."
+            else
+                "#{Util.english_list(selections.map(&:value))} were registered for the #{name}."
+            end
+        when 2
+            "#{Util.english_list(selections.map(&:value))}, #{Util.affirmation_words.sample}."
+        when 3
+            Util.affirmation_words.sample.capitalize + '.'
+        end
+    end
+
+    def apologetic(prompt)
+        if @repetitions < 1
+            puts prompt
+        else
+            #puts Util.sorry_words[@repetitions % Util.sorry_words.size].capitalize + ', ' + prompt[0].downcase + prompt[1..-1]
+            puts Util.sorry_words[(@repetitions - 1) % Util.sorry_words.size].capitalize + ', ' + prompt
+        end
     end
 end
 
