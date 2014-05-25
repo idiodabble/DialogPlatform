@@ -1,5 +1,7 @@
 # Prioritized TODO list
 
+# note: there's currently an embarassing amount of duplicated code between Slot and Multislot. To some extent this is unavoidable because the functionality is similar but not identical, but when we improve code in one area we'll have to be careful to port it to the other
+
 # to finish up the routing logic of Multislot, I need to:
 # 1. write the code for handling user trying to change previous slots
 # 2. debugging
