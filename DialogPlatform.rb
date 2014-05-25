@@ -18,7 +18,6 @@ class Variable
     # max_selection: the number of values a user can set at one time
     #    example: when set to 2, 'San Diego' or 'San Diego and San Francisco' are valid responses,
     #    but 'San Diego, San Francisco, and Los Angeles' is not
-    # selection: what the user actual selects. Can be a Value or an Array of Values
     def initialize(name, values, max_selection = 1)
         @name = name
         @values = values.map {|value|
@@ -32,7 +31,6 @@ class Variable
         }
         @prob_mass = @values.map(&:likelihood).reduce(:+)
         @max_selection = max_selection
-        @selection = nil
     end
 
     #TODO: figure out a way to never have to write value.value
@@ -44,8 +42,8 @@ class Variable
         nil
     end
 
-    def did_you_say_prompt(selections)
-        "I didn't hear you, did you say #{Util.english_list(selections.map(&:value))}?"
+    def did_you_say_prompt(extractions)
+        "I didn't hear you, did you say #{Util.english_list(extractions.map(&:value))}?"
     end
 
     # degree is a number 0 to 3 determining how much grounding to use. 0 is none, 3 is the most verbose
@@ -65,7 +63,11 @@ class Variable
     end
 
     def precondition
-        return true
+        true
+    end
+
+    def default_value
+        nil
     end
 end
 
@@ -78,6 +80,16 @@ Word = Struct.new(:word, :confidence)
 class Utterance < Array
     def line
         self.map(&:word).join(' ')
+    end
+end
+
+# A Selection is an array of Values
+# Confidence should be a number in (0,1]
+class Selection < Array
+    attr_accessor :confidence
+    def initialize(array, confidence)
+        @confidence = confidence
+        super(array)
     end
 end
 
@@ -137,19 +149,19 @@ class Slot
     end
 
     def did_you_say_reaction
-        puts apologetic(@variable.did_you_say_prompt(@selections))
+        puts apologetic(@variable.did_you_say_prompt(@extractions))
         @utterances << get_input
         line = @utterances.last.line
         if Util.no_set.include? line
-            repetition_likelihood(@variable.values - @selections)
+            repetition_likelihood(@variable.values - @extractions)
             puts "Oh, what did you mean?"
             @utterances << get_input
         elsif Util.no_set.find{|no_word| line[no_word] != nil} != nil
-            repetition_likelihood(@variable.values - @selections)
+            repetition_likelihood(@variable.values - @extractions)
         elsif Util.yes_set.find{|no_word| line[no_word] != nil} != nil
             return true
         else
-            repetition_likelihood(@selections)
+            repetition_likelihood(@extractions)
         end
         return false
     end
@@ -160,33 +172,33 @@ class Slot
 
     def run_clarification
         clarification_prompt
-        repetition_likelihood(@selections)
+        repetition_likelihood(@extractions)
         run_cycle
     end
 
-    def repetition_likelihood(selections)
-        selections.each{|selection|
+    def repetition_likelihood(extractions)
+        extractions.each{|extraction|
             @variable.prob_mass += selection.likelihood
-            selection.likelihood *= 2
+            extraction.likelihood *= 2
         }
     end
 
     def selection_reaction
-        responses = @selections.map(&:response).compact
+        responses = @extractions.map(&:response).compact
         if responses.empty?
             puts @variable.response unless @variable.response.nil?
         else
             responses.each{|response| puts response}
         end
         if @run_count > 1
-            puts @variable.grounding(@selections, 2)
+            puts @variable.grounding(@extractions, 2)
         else
-            puts @variable.grounding(@selections, 1)
+            puts @variable.grounding(@extractions, 1)
         end
     end
 
 #    def too_many_response
-#        puts "I was looking for at most #{max_selections} responses, but I heard #{@selections.size}: #{english_list(@selections)}. Which of these would you like?"
+#        puts "I was looking for at most #{max_extractions} responses, but I heard #{@extractions.size}: #{english_list(@extractions)}. Which of these would you like?"
         #change probabilities
 
     # returns 0 if it couldn't find anything at all,
@@ -194,25 +206,29 @@ class Slot
     def extract_selection(utterance)
 # TODO: use edit distance
         line = utterance.line
-        selections = @variable.values.map { |value|
+        extractions = @variable.values.map { |value|
             phrasings = value.phrasings.nil? ? @variable.phrasings(value) : value.phrasings
             phrasing_index = phrasings.find_index{|phrasing| line[phrasing] != nil}
             [value, phrasing_index] unless phrasing_index.nil?
         }.compact
-# orders the selections by probability, then by most recently said in utterance
-        selections.sort{|a, b|
+# orders the extractions by probability, then by most recently said in utterance
+        extractions.sort{|a, b|
             first_order = b[0].likelihood <=> a[0].likelihood
             first_order == 0 ? b[1] <=> b[1] : first_order
         }
-        @selections = selections.map{|value, phrasing_index| value}.first @variable.max_selection
-# BIGGEST TODO: use probabilities to get confidence, right now I've just got a mind boggling stupid hack
-        if @selections.size == 0
+        @extractions = extractions.map{|value, phrasing_index| value}.first @variable.max_selection
+        if @extractions.size == 0
             @confidence = 0
         else
-            @confidence = utterance.map(&:confidence).reduce(:+) / utterance.size
-            @confidence = (@confidence + @selections.first.likelihood) / 2
+            @confidence = calc_confidence
         end
         puts "(DEBUG) confidence: " + @confidence.to_s if DEBUG
+    end
+
+# BIGGEST TODO: use probabilities to get confidence, right now I've just got a mind boggling stupid hack
+    def calc_confidence(utterance, extractions)
+        confidence = utterance.map(&:confidence).reduce(:+) / utterance.size
+        (confidence + extractions.first.likelihood) / 2
     end
 
     def apologetic(prompt)
@@ -263,14 +279,18 @@ end
 
 # Prompts for more than one piece of information at a time
 class MultiSlot
-    def initialize(variables, prompts, extract_threshold = 0.6, clarify_threshold = 0.3)
+    # extractions refer to any possible selection of values we think the user might be making from their utterance
+    # selections refer to extractions that we believe are true
+    # both are hashes from Variable to Selection
+    def initialize(variables, prompts, variables_needed = variables, extract_threshold = 0.6, change_threshold = 0.6)
         @variables = variables
         @prompts = prompts
         @extract_threshold = extract_threshold
-        @clarify_threshold = clarify_threshold
+        @change_threshold = change_threshold
         @utterances = []
         @run_count = 0
-        @confidence = -1
+        @selections = {}
+        @variables_needed = variables_needed
     end
 
     def run
@@ -289,24 +309,84 @@ class MultiSlot
         line.scan(/(\S+)\s?(\([\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1) : Word.new(word, confidence[1...-1].to_f)}
     end
 
-# if any selections were found with high confidence, ask for remaining ones, and raise probability of low confidence selections
+# if any extractions were found with high confidence, ask for remaining ones, and raise probability of low confidence extractions
 # if not, run did_you_mean on highest confidence, latest said selection
+# OR: just run remaining_vars, and introduce apologetic/did_you_mean only on repeated runs that learned nothing
+
+# ALSO: how to handle changing previous slots?
+# check for change (change____var name: value), if accept, ask for confirmation, if yes change it, if no reduce likelihood
     def run_cycle
         @utterances << get_input
         while(true)
-            extract_selection(@utterances.last)
-# TODO: ask for remaining variables
-            if @confidence >= @extract_threshold
-                break
-            elsif @confidence >= @clarify_threshold
-                break if did_you_say_reaction
+            extracted = 0
+            @extractions = {}
+            extracted_something = false
+            @variables.each {|variable|
+                extract_selection(@utterances.last, variable)
+                selections = @selections[variable]
+                extractions = @extractions[variable]
+                if extractions.confidence > @extract_threshold
+                    if selections.nil?
+                        @selections[variable] = extractions
+                        extracted_something = true
+                    elsif extractions.confidence > selections.confidence
+                        replace_response(selections, extractions, variable)
+                        @selections[variable] = extractions
+                        extracted_something = true
+                    end
+                end
+            }
+            remaining_vars = @variables_needed - @selections.keys
+            if false
+# first, detect if trying to change
+# also: handle "Flying on the 17th and change my destinatino to San Diego"?
             else
-                return true
+                if remaining_vars.empty?
+                    break
+                elsif extracted_something
+# run remaining_vars prompt
+                else
+# see if you can run a did_you_mean prompt
+# if not, run remaining_vars prompt with extra grounding
+                end
             end
             @repetitions += 1
         end
+#TODO: an unneeded and unanswered variable uses its default value if its default value is not nil
         selection_reaction
         return true
+    end
+
+    def extract_selection(utterance, variable)
+# TODO: use edit distance
+        line = utterance.line
+        extractions = variable.values.map { |value|
+            phrasings = value.phrasings.nil? ? variable.phrasings(value) : value.phrasings
+            phrasing_index = phrasings.find_index{|phrasing| line[phrasing] != nil}
+            [value, phrasing_index] unless phrasing_index.nil?
+        }.compact
+# orders the extractions by probability, then by most recently said in utterance
+        extractions.sort{|a, b|
+            first_order = b[0].likelihood <=> a[0].likelihood
+            first_order == 0 ? b[1] <=> b[1] : first_order
+        }
+        extractions = extractions.map{|value, phrasing_index| value}.first variable.max_selection
+# BIGGEST TODO: use probabilities to get confidence, right now I've just got a mind boggling stupid hack
+        if extractions.size == 0
+            confidence = 0
+        else
+            confidence= calc_confidence
+        end
+        @extractions[variable] = Selection.new(extractions, confidence)
+        puts "(DEBUG) confidence: " + @confidence[variable].to_s if DEBUG
+    end
+
+    def calc_confidence(utterance, extractions)
+        confidence = utterance.map(&:confidence).reduce(:+) / utterance.size
+        (confidence[variable] + extractions[variable].first.likelihood) / 2
+    end
+
+    def replace_response(old_selections, new_selections, variable)
     end
 end
 
