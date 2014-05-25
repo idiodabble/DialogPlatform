@@ -6,6 +6,7 @@
 # 1. write the code for handling user trying to change previous slots
 # 2. debugging
 # 3. cleanup variable or method names to be more clear (like extractions and selections and whether they should be plural or singular, etc)
+# 4. write the code for preconditions (so like, you'll only see the question about seat numbers if you're flying an airline that assigns seat numbers)
 
 # biggest ticket items besides the routing, which Jeremy could work on if he likes:
 # 1. everything to do with probability (right now I just have arbitrary hacks, like when I want something to become more likely right now I just double the scores)
