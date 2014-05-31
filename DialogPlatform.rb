@@ -157,7 +157,7 @@ class Slot
                 if escape(@utterances.last, @extractions)
                     return nil
                 else
-                    return run_clarification
+                    clarification_reaction
                 end
             end
             @repetitions += 1
@@ -202,10 +202,10 @@ class Slot
         puts apologetic("I'm not sure what you said, could you repeat your response?")
     end
 
-    def run_clarification
+    def clarification_reaction
         clarification_prompt
         repetition_likelihood(@extractions)
-        run_cycle
+        @utterances << get_input
     end
 
     def selection_reaction
@@ -368,6 +368,7 @@ class MultiSlot
                     end
                 end
             }
+# where does escape go???
             if false
 # check for change (change____var name: value), if accept, ask for confirmation, if yes change it, if no reduce likelihood
 # also: handle "Flying on the 17th and change my destinatino to San Diego"?
@@ -382,8 +383,12 @@ class MultiSlot
                     if best_extraction.confidence >= clarify_threshold
                         break if did_you_say_reaction(best_extraction)
                     else
-                        extracted_nothing_prompt
-                        @utterances << get_input
+                        if escape(@utterances.last, @extractions)
+                            return nil
+                        else
+                            extracted_nothing_prompt
+                            @utterances << get_input
+                        end
                     end
                 end
             end
@@ -486,6 +491,10 @@ class MultiSlot
             @variable.prob_mass += selection.likelihood
             extraction.likelihood *= 2
         }
+    end
+
+    def escape(utterance, extractions)
+        false
     end
 
     # degree is a number 0 to 3 determining how much grounding to use. 0 is none, 3 is the most verbose
