@@ -79,6 +79,10 @@ class Variable
     def default_value
         nil
     end
+
+    def did_you_say_prompt(extractions)
+        "I didn't hear you, did you say #{Util.english_list(extractions.map(&:value))}?"
+    end
 end
 
 # Every word has an associated confidence that it is what we think it is.
@@ -159,10 +163,6 @@ class Slot
         return true
     end
 
-    def did_you_say_prompt(extractions)
-        "I didn't hear you, did you say #{Util.english_list(extractions.map(&:value))}?"
-    end
-
     def did_you_say_reaction
         puts apologetic(@variable.did_you_say_prompt(@extractions))
         @utterances << get_input
@@ -184,7 +184,7 @@ class Slot
 # TODO: make this actually good
     def repetition_likelihood(extractions)
         extractions.each{|extraction|
-            @variable.prob_mass += selection.likelihood
+            @variable.prob_mass += extraction.likelihood
             extraction.likelihood *= 2
         }
     end
@@ -202,7 +202,7 @@ class Slot
     def selection_reaction
         responses = @extractions.map(&:response).compact
         # value specific responses
-         responses.each{|response| puts response}
+        responses.each{|response| puts response}
         # general variable response 
         puts @variable.response unless @variable.response.nil?
         # more succinct in following runs
@@ -236,7 +236,7 @@ class Slot
         if @extractions.size == 0
             @confidence = 0
         else
-            @confidence = calc_confidence
+            @confidence = calc_confidence(utterance, @extractions)
         end
         puts "(DEBUG) confidence: " + @confidence.to_s if DEBUG
     end
@@ -244,6 +244,7 @@ class Slot
 # BIGGEST TODO: use probabilities to get confidence, right now I've just got a mind boggling stupid hack
     def calc_confidence(utterance, extractions)
         confidence = utterance.map(&:confidence).reduce(:+) / utterance.size
+        p extractions if DEBUG
         (confidence + extractions.first.likelihood) / 2
     end
 
@@ -311,12 +312,12 @@ class MultiSlot
     end
 
     # not intended for overwrite, just here for convenience
-    def @remaining_needed_vars
+    def remaining_needed_vars
         @variables_needed - @selections.keys
     end
 
     # not intended for overwrite, just here for convenience
-    def @remaining_vars
+    def remaining_vars
         @variables - @selection.keys
     end
 
@@ -362,7 +363,7 @@ class MultiSlot
 # check for change (change____var name: value), if accept, ask for confirmation, if yes change it, if no reduce likelihood
 # also: handle "Flying on the 17th and change my destinatino to San Diego"?
             else
-                if @remaining_needed_vars.empty?
+                if remaining_needed_vars.empty?
                     break
                 elsif extracted_something
                     remaining_vars_prompt
@@ -400,7 +401,7 @@ class MultiSlot
         if extractions.size == 0
             confidence = 0
         else
-            confidence= calc_confidence
+            confidence= calc_confidence(utterance, @extractions)
         end
         @extractions[variable] = Selection.new(extractions, confidence)
         puts "(DEBUG) confidence: " + @confidence[variable].to_s if DEBUG
@@ -450,10 +451,6 @@ class MultiSlot
         else
             puts @variable.grounding(@extractions, 1)
         end
-    end
-
-    def did_you_say_prompt(extractions)
-        "I didn't hear you, did you say #{Util.english_list(extractions.map(&:value))}?"
     end
 
     def did_you_say_reaction(extractions)
