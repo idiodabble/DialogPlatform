@@ -154,13 +154,16 @@ class Slot
             else
                 #TODO: return false, so coder deccides whether to use run_clarification or do something else,
                 # because maybe the user is trying to jump
-                run_clarification
-                return true
+                if escape(@utterances.last, @extractions)
+                    return nil
+                else
+                    return run_clarification
+                end
             end
             @repetitions += 1
         end
         selection_reaction
-        return true
+        return @extractions
     end
 
     def did_you_say_reaction
@@ -187,6 +190,12 @@ class Slot
             @variable.prob_mass += extraction.likelihood
             extraction.likelihood *= 2
         }
+    end
+
+    # this is how the coder can escape the Slot, in case the user is trying to exit or jump elsewhere
+    # TODO: create an example of escape in either Reservation.rb or a higher level class
+    def escape(utterance, extractions)
+        false
     end
 
     def clarification_prompt
