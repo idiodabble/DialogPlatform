@@ -17,15 +17,15 @@
 
 DEBUG = true
 
+class Value < String
+    attr_accessor :likelihood, :phrasings, :response, :next_slot
+    
 # Params:
-# +value+:: a string such as 'San Diego'
+# +name+:: a string such as 'San Diego'
 # +likelihood+:: likelihood of this value being selected relative to other values; does not need to be a probability
 # +phrasings+:: array of regular expressions representing phrases that would indicate that the user is selecting this value
 # +response+:: response given to user if the user selects this value
 # +next_slot+:: next Slot to go to if the user selects this value
-class Value < String
-    attr_accessor :likelihood, :phrasings, :response, :next_slot
-    
     def initialize(name, likelihood, phrasings, response, next_slot)
         @likelihood = likelihood; @phrasings = phrasings; @response = response; @next_slot = next_slot
         super(name)
@@ -94,6 +94,37 @@ class Variable
 
     def did_you_say_prompt(extractions)
         "I didn't hear you, did you say #{Util.english_list(extractions)}?"
+    end
+
+    # return array of hash of value, confidence and position
+    def extract_all(utterance)
+# TODO: use edit distance
+        line = utterance.line
+        extractions = @variable.values.map { |value|
+            phrasings = value.phrasings.nil? ? @variable.phrasings(value) : value.phrasings
+            phrasing = phrasings.find{|phrasing| line[phrasing] != nil}
+# TODO: need to get the confidence associated with each of the words in the phrasing!!!
+            {value: value,
+# TODO: could get this when we do line[phrasing]
+            position: line.index(phrasing),
+            confidence: calc_confidence(value, phrasing, utterance)} unless phrasing.nil?
+        }.compact
+# orders the extractions by probability, then by most recently said in utterance
+# also, what to do if 'san francisco' said once but 'san diego' said twice?
+        puts "(DEBUG) extractions: " + extractions if DEBUG
+        return extractions
+    end
+
+    def extract_top(utterance, n)
+        extractions = extract(utterance)
+        extractions.sort{|a, b|
+            first_order = b[:confidence] <=> a[:confidence]
+            first_order == 0 ? b[:position] <=> a[:position] : first_order
+        }.first n
+    end
+
+    def calc_confidence(value, phrasing, utterance)
+        42
     end
 end
 
@@ -241,35 +272,21 @@ class Slot
     # returns 0 if it couldn't find anything at all,
     # otherwise returns confidence probability
     def extract_selection(utterance)
-# TODO: use edit distance
-        line = utterance.line
-        extractions = @variable.values.map { |value|
-            phrasings = value.phrasings.nil? ? @variable.phrasings(value) : value.phrasings
-            phrasing = phrasings.find{|phrasing| line[phrasing] != nil}
-# TODO: could do this more efficiently
-            [value, line.index(phrasing)] unless phrasing.nil?
-        }.compact
-# orders the extractions by probability, then by most recently said in utterance
-# also order by how many times it was said?
-        extractions.sort!{|a, b|
-            first_order = b[0].likelihood <=> a[0].likelihood
-            first_order == 0 ? b[1] <=> a[1] : first_order
-        }
-        puts "(DEBUG) extractions: " + extractions if DEBUG
-        @extractions = extractions.map{|value, phrasing_index| value}.first @variable.max_selection
+        @extractions = @variable.extract_top(utterance, max_selection).map{|hash| hash[:value]}
         if @extractions.size == 0
             @confidence = 0
         else
-            @confidence = calc_confidence(utterance, @extractions)
+            @confidence = calc_confidence(@extractions)
         end
         puts "(DEBUG) confidence: " + @confidence.to_s if DEBUG
     end
 
-# BIGGEST TODO: use probabilities to get confidence, right now I've just got a mind boggling stupid hack
-    def calc_confidence(utterance, extractions)
-        confidence = utterance.map(&:confidence).reduce(:+) / utterance.size
-        #puts "(DEBUG) extractions: " +  extractions.map{|x| "#{x} #{x.likelihood}"}.join(" ") if DEBUG
-        (confidence + extractions.first.likelihood) / 2
+    def extraction_confidence(value, phrasing, utterance)
+    end
+
+# TODO: something smarter than just the average
+    def calc_confidence(extractions)
+        extractions.map(&:confidence).reduce(:+) / extractions.size
     end
 
     def apologetic(prompt)
