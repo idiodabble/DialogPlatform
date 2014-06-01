@@ -104,18 +104,31 @@ class Variable
         extractions = @values.map { |value|
             phrasings = value.phrasings.nil? ? phrasings(value) : value.phrasings
             phrasing = phrasings.find{|phrasing| line[phrasing] != nil}
-            puts "yo yo"
-            p phrasing
-# TODO: need to get the confidence associated with each of the words in the phrasing!!!
+            position = line.index(phrasing)
             {value: value,
 # TODO: could get this when we do line[phrasing]
             position: line.index(phrasing),
-            confidence: calc_confidence(value, phrasing, utterance)} unless phrasing.nil?
+            confidence: calc_confidence(utterance, value, phrasing)} unless phrasing.nil?
         }.compact
 # orders the extractions by probability, then by most recently said in utterance
 # also, what to do if 'san francisco' said once but 'san diego' said twice?
         puts "(DEBUG) extractions: " + extractions.to_s if DEBUG
         return extractions
+    end
+
+    # given an utterance (which is an array of Word, with the .line method to get rid of parenthetical likelihoods)
+    # and given all the fields in this Variable class, such as @values
+    # return a list of all the values and your confidence that the user is trying to select them, for example:
+    # {"San Diego" => 0.8, "San Francisco" => 0.2, "Los Angeles" => 0}
+    # or however you want to organize it
+    # also, keep in mind that every Word has an associated likelihood, and same goes for every Value
+    def edit_dist_extract(utterance)
+    end
+
+    def calc_confidence(utterance, value, phrasing)
+        words = Util.get_words_from_phrasing(utterance, phrasing)
+#map end_pos and start_pos to original utterance with probabilities to get which words are used in phrasing
+#then get their confidences, and use them with value likelihood to calculate confidence
     end
 
     def extract_top(utterance)
@@ -196,9 +209,10 @@ class Slot
             if @confidence >= @extract_threshold
                 break
             elsif @confidence >= @clarify_threshold
+#TODO: need to increase likelihood of all extractions, not just top
                 break if did_you_say_reaction
             else
-                #TODO: return false, so coder deccides whether to use run_clarification or do something else,
+                # returns nil so coder deccides whether to use run_clarification or do something else,
                 # because maybe the user is trying to jump
                 if escape(@utterances.last, @extractions)
                     return nil
@@ -233,6 +247,9 @@ class Slot
 # TODO: make this actually good
     def repetition_likelihood(extractions)
         extractions.each{|extraction|
+#TODO: an extraction that we thought less likely should increase by less
+#TODO: make sure that when you update likelihoods, you're actually updating the variable's permanent value likelihoods
+# is extractions making copies or references?
             @variable.prob_mass += extraction.likelihood
             extraction.likelihood *= 2
         }
@@ -272,6 +289,7 @@ class Slot
 #        puts "I was looking for at most #{max_extractions} responses, but I heard #{@extractions.size}: #{english_list(@extractions)}. Which of these would you like?"
         #change probabilities
 
+    # sets @extractions and @confidence
     # returns 0 if it couldn't find anything at all,
     # otherwise returns confidence probability
     def extract_selection(utterance)
@@ -313,6 +331,16 @@ class Util
         else
             list[0...-1].join(', ') + ' and ' + list[-1]
         end
+    end
+
+    # Tries to get which Words are relevant to a phrasing
+    # by looking at the start and end of the regex match
+    def self.get_words_from_phrasing(utterance, phrasing)
+        line = utterance.line
+        match = phrasing.match(line)
+        start_pos = match.begin(0)
+        end_pos = match.end(0)
+        words = utterance.line[start_pos...end_pos].split # what about regexes that dont match along word boundaries?
     end
 
     def self.affirmation_words
