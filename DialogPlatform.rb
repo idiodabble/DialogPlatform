@@ -100,12 +100,10 @@ class Variable
     def extract(utterance)
 # TODO: use edit distance
         line = utterance.line
-        p @values
         extractions = @values.map { |value|
             phrasings = value.phrasings.nil? ? phrasings(value) : value.phrasings
             phrasing = phrasings.find{|phrasing| line[phrasing] != nil}
-            position = line.index(phrasing)
-            {value: value,
+            h = {value: value,
 # TODO: could get this when we do line[phrasing]
             position: line.index(phrasing),
             confidence: calc_confidence(utterance, value, phrasing)} unless phrasing.nil?
@@ -127,8 +125,9 @@ class Variable
 
     def calc_confidence(utterance, value, phrasing)
         words = Util.get_words_from_phrasing(utterance, phrasing)
-#map end_pos and start_pos to original utterance with probabilities to get which words are used in phrasing
-#then get their confidences, and use them with value likelihood to calculate confidence
+        min_conf = words.map(&:confidence).min
+# TODO do something smarter
+        min_conf * value.likelihood * @values.size
     end
 
     def extract_top(utterance)
@@ -138,21 +137,23 @@ class Variable
             first_order == 0 ? b[:position] <=> a[:position] : first_order
         }.first @max_selection
     end
-
-    def calc_confidence(value, phrasing, utterance)
-        42
-    end
 end
 
 # Every word has an associated confidence that it is what we think it is.
 # Confidence must be in the range of (0, 1]
-Word = Struct.new(:word, :confidence)
+class Word < String
+    attr_accessor :confidence
+    def initialize(word, confidence)
+        @confidence = confidence
+        super(word)
+    end
+end
 
 # An Utterance is an array of Words.
 # Call line to get a string version of the utterance.
 class Utterance < Array
     def line
-        self.map(&:word).join(' ')
+        self.join(' ')
     end
 end
 
@@ -336,11 +337,12 @@ class Util
     # Tries to get which Words are relevant to a phrasing
     # by looking at the start and end of the regex match
     def self.get_words_from_phrasing(utterance, phrasing)
-        line = utterance.line
-        match = phrasing.match(line)
+        match = phrasing.match(utterance.line)
         start_pos = match.begin(0)
         end_pos = match.end(0)
-        words = utterance.line[start_pos...end_pos].split # what about regexes that dont match along word boundaries?
+        words = []
+        utterance.reduce(0){|sum,n| words << [n, sum]; sum + n.length + 1}
+        words.select{|word| start_pos <= word[1] && word[1] < end_pos}.map{|word| word[0]}
     end
 
     def self.affirmation_words
