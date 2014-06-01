@@ -1,3 +1,6 @@
+# Designed to let users easily make new dialog systems with a platform that is heavily modifiable, so it can be customized to the individual dialog system's needs.
+# Author:: Daniel Steffee and Jeremy Hines
+
 # Prioritized TODO list
 
 # note: there's currently an embarassing amount of duplicated code between Slot and Multislot. To some extent this is unavoidable because the functionality is similar but not identical, but when we improve code in one area we'll have to be careful to port it to the other
@@ -14,22 +17,32 @@
 
 DEBUG = true
 
-# value: a string such as 'San Diego'
-# likelihood: likelihood of this value being selected relative to other values; does not need to be a probability
-# phrasings: array of regular expressions representing phrases that would indicate that the user is selecting this value
-# response: response given to user if the user selects this value
-# next_slot: next Slot to go to if the user selects this value
-Value = Struct.new(:value, :likelihood, :phrasings, :response, :next_slot)
+# Params:
+# +value+:: a string such as 'San Diego'
+# +likelihood+:: likelihood of this value being selected relative to other values; does not need to be a probability
+# +phrasings+:: array of regular expressions representing phrases that would indicate that the user is selecting this value
+# +response+:: response given to user if the user selects this value
+# +next_slot+:: next Slot to go to if the user selects this value
+class Value < String
+    attr_accessor :likelihood, :phrasings, :response, :next_slot
+    
+    def initialize(name, likelihood, phrasings, response, next_slot)
+        @likelihood = likelihood; @phrasings = phrasings; @response = response; @next_slot = next_slot
+        super(name)
+    end
+end
 
+#
 class Variable
     attr_accessor :name, :values, :prob_mass, :max_selection, :selection
 
-    # name: name of the variable, such as 'departure city'
-    # values: can be an array of Values, see above
+    # Params:
+    # +name+:: name of the variable, such as 'departure city'
+    # +values+:: can be an array of Values, see above
     #         or it can be an array of strings such as ['San Diego', 'San Fransisco', 'Sacramento']
     #         using defaults to fill in the other fields for Values
-    # prob_mass: because likelihoods don't have to be probabilities, the total probability mass may not be 1
-    # max_selection: the number of values a user can set at one time
+    # +prob_mass+:: because likelihoods don't have to be probabilities, the total probability mass may not be 1
+    # +max_selection+:: the number of values a user can set at one time
     #    example: when set to 2, 'San Diego' or 'San Diego and San Francisco' are valid responses,
     #    but 'San Diego, San Francisco, and Los Angeles' is not
     def initialize(name, values, max_selection = 1)
@@ -47,9 +60,8 @@ class Variable
         @max_selection = max_selection
     end
 
-    #TODO: figure out a way to never have to write value.value
     def phrasings(value)
-        [/#{value.value.downcase}/]
+        [/#{value.downcase}/]
     end
 
     def response
@@ -61,12 +73,12 @@ class Variable
         case degree
         when 1
             if selections.size <= 1
-                "#{selections.first.value} was registered for the #{name}."
+                "#{selections.first} was registered for the #{name}."
             else
-                "#{Util.english_list(selections.map(&:value))} were registered for the #{name}."
+                "#{Util.english_list(selections)} were registered for the #{name}."
             end
         when 2
-            "#{Util.english_list(selections.map(&:value))}, #{Util.affirmation_words.sample}."
+            "#{Util.english_list(selections)}, #{Util.affirmation_words.sample}."
         when 3
             Util.affirmation_words.sample.capitalize + '.'
         end
@@ -81,7 +93,7 @@ class Variable
     end
 
     def did_you_say_prompt(extractions)
-        "I didn't hear you, did you say #{Util.english_list(extractions.map(&:value))}?"
+        "I didn't hear you, did you say #{Util.english_list(extractions)}?"
     end
 end
 
@@ -233,14 +245,17 @@ class Slot
         line = utterance.line
         extractions = @variable.values.map { |value|
             phrasings = value.phrasings.nil? ? @variable.phrasings(value) : value.phrasings
-            phrasing_index = phrasings.find_index{|phrasing| line[phrasing] != nil}
-            [value, phrasing_index] unless phrasing_index.nil?
+            phrasing = phrasings.find{|phrasing| line[phrasing] != nil}
+# TODO: could do this more efficiently
+            [value, line.index(phrasing)] unless phrasing.nil?
         }.compact
 # orders the extractions by probability, then by most recently said in utterance
-        extractions.sort{|a, b|
+# also order by how many times it was said?
+        extractions.sort!{|a, b|
             first_order = b[0].likelihood <=> a[0].likelihood
-            first_order == 0 ? b[1] <=> b[1] : first_order
+            first_order == 0 ? b[1] <=> a[1] : first_order
         }
+        puts "(DEBUG) extractions: " + extractions if DEBUG
         @extractions = extractions.map{|value, phrasing_index| value}.first @variable.max_selection
         if @extractions.size == 0
             @confidence = 0
@@ -253,7 +268,7 @@ class Slot
 # BIGGEST TODO: use probabilities to get confidence, right now I've just got a mind boggling stupid hack
     def calc_confidence(utterance, extractions)
         confidence = utterance.map(&:confidence).reduce(:+) / utterance.size
-        p extractions if DEBUG
+        #puts "(DEBUG) extractions: " +  extractions.map{|x| "#{x} #{x.likelihood}"}.join(" ") if DEBUG
         (confidence + extractions.first.likelihood) / 2
     end
 
@@ -376,8 +391,7 @@ class MultiSlot
                 if remaining_needed_vars.empty?
                     break
                 elsif extracted_something
-                    remaining_vars_prompt
-                    @utterances << get_input
+                    remaining_vars_reaction
                 else
                     best_extraction = @extractions.values.reduce{|a,b| a.confidence > b.confidence ? a : b}
                     if best_extraction.confidence >= clarify_threshold
@@ -386,8 +400,7 @@ class MultiSlot
                         if escape(@utterances.last, @extractions)
                             return nil
                         else
-                            extracted_nothing_prompt
-                            @utterances << get_input
+                            extracted_nothing_reaction
                         end
                     end
                 end
@@ -421,8 +434,18 @@ class MultiSlot
         puts "(DEBUG) confidence: " + @confidence[variable].to_s if DEBUG
     end
 
+    def remaining_vars_reaction
+        remaining_vars_prompt
+        @utterances << get_input
+    end
+
     def remaining_vars_prompt
         puts "What is your #{english_list(remaining_vars.map(&:name))}?"
+    end
+
+    def extracted_nothing_reaction
+        extracted_nothing_prompt
+        @utterances << get_input
     end
 
     def extracted_nothing_prompt
@@ -505,10 +528,10 @@ class MultiSlot
             if selections.size <= 1
                 "#{selections.first.value} was registered for the #{name}."
             else
-                "#{Util.english_list(selections.map(&:value))} were registered for the #{name}."
+                "#{Util.english_list(selections)} were registered for the #{name}."
             end
         when 2
-            "#{Util.english_list(selections.map(&:value))}, #{Util.affirmation_words.sample}."
+            "#{Util.english_list(selections)}, #{Util.affirmation_words.sample}."
         when 3
             Util.affirmation_words.sample.capitalize + '.'
         end
