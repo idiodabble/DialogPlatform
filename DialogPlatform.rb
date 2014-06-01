@@ -97,12 +97,15 @@ class Variable
     end
 
     # return array of hash of value, confidence and position
-    def extract_all(utterance)
+    def extract(utterance)
 # TODO: use edit distance
         line = utterance.line
-        extractions = @variable.values.map { |value|
-            phrasings = value.phrasings.nil? ? @variable.phrasings(value) : value.phrasings
+        p @values
+        extractions = @values.map { |value|
+            phrasings = value.phrasings.nil? ? phrasings(value) : value.phrasings
             phrasing = phrasings.find{|phrasing| line[phrasing] != nil}
+            puts "yo yo"
+            p phrasing
 # TODO: need to get the confidence associated with each of the words in the phrasing!!!
             {value: value,
 # TODO: could get this when we do line[phrasing]
@@ -111,16 +114,16 @@ class Variable
         }.compact
 # orders the extractions by probability, then by most recently said in utterance
 # also, what to do if 'san francisco' said once but 'san diego' said twice?
-        puts "(DEBUG) extractions: " + extractions if DEBUG
+        puts "(DEBUG) extractions: " + extractions.to_s if DEBUG
         return extractions
     end
 
-    def extract_top(utterance, n)
+    def extract_top(utterance)
         extractions = extract(utterance)
         extractions.sort{|a, b|
             first_order = b[:confidence] <=> a[:confidence]
             first_order == 0 ? b[:position] <=> a[:position] : first_order
-        }.first n
+        }.first @max_selection
     end
 
     def calc_confidence(value, phrasing, utterance)
@@ -272,11 +275,12 @@ class Slot
     # returns 0 if it couldn't find anything at all,
     # otherwise returns confidence probability
     def extract_selection(utterance)
-        @extractions = @variable.extract_top(utterance, max_selection).map{|hash| hash[:value]}
+        extractions = @variable.extract_top(utterance)
+        @extractions = extractions.map{|hash| hash[:value]}
         if @extractions.size == 0
             @confidence = 0
         else
-            @confidence = calc_confidence(@extractions)
+            @confidence = calc_confidence(extractions.map{|hash| hash[:confidence]})
         end
         puts "(DEBUG) confidence: " + @confidence.to_s if DEBUG
     end
@@ -285,8 +289,8 @@ class Slot
     end
 
 # TODO: something smarter than just the average
-    def calc_confidence(extractions)
-        extractions.map(&:confidence).reduce(:+) / extractions.size
+    def calc_confidence(confidences)
+        confidences.reduce(:+) / confidences.size
     end
 
     def apologetic(prompt)
