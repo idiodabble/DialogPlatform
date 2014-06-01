@@ -93,7 +93,7 @@ class Variable
     end
 
     def did_you_say_prompt(extractions)
-        "I didn't hear you, did you say #{Util.english_list(extractions)}?"
+        "I didn't hear you, did you say #{Util.english_list(extractions.map(&:value))}?"
     end
 
     # return array of hash of value, confidence and position
@@ -103,10 +103,11 @@ class Variable
         extractions = @values.map { |value|
             phrasings = value.phrasings.nil? ? phrasings(value) : value.phrasings
             phrasing = phrasings.find{|phrasing| line[phrasing] != nil}
-            h = {value: value,
-# TODO: could get this when we do line[phrasing]
-            position: line.index(phrasing),
-            confidence: calc_confidence(utterance, value, phrasing)} unless phrasing.nil?
+            unless phrasing.nil?
+                confidence = calc_confidence(utterance, value, phrasing)
+# TODO: could get position this when we do line[phrasing]
+                Extraction.new(value, confidence, line.index(phrasing))
+            end
         }.compact
 # orders the extractions by probability, then by most recently said in utterance
 # also, what to do if 'san francisco' said once but 'san diego' said twice?
@@ -130,8 +131,7 @@ class Variable
         min_conf * value.likelihood * @values.size
     end
 
-    def extract_top(utterance)
-        extractions = extract(utterance)
+    def top_extractions(extractions)
         extractions.sort{|a, b|
             first_order = b[:confidence] <=> a[:confidence]
             first_order == 0 ? b[:position] <=> a[:position] : first_order
@@ -157,15 +157,19 @@ class Utterance < Array
     end
 end
 
+# An extraction, singular, has a single value
+# Multiple extractions, plural, can be extracted at a time if max_selections > 1
+Extraction = Struct.new(:value, :confidence, :position)
+
 # A Selection is an array of Values
 # Confidence should be a number in (0,1]
-class Selection < Array
-    attr_accessor :confidence
-    def initialize(array, confidence)
-        @confidence = confidence
-        super(array)
-    end
-end
+# class Selection < Array
+ #   attr_accessor :confidence
+ #   def initialize(array, confidence)
+ #       @confidence = confidence
+ #       super(array)
+ #   end
+#end
 
 class Slot
     # prompts: an array of possible prompts
@@ -199,6 +203,7 @@ class Slot
 
 # TODO: for input 'san diego (0.4)' does 0.4 apply to both words or just 'diego'? how to handle?
     def get_input
+        p @variable.values.map{|value| [value.likelihood, value]} if DEBUG
         line = gets.chomp.downcase
         Utterance.new(line.scan(/(\S+)\s?(\([\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1) : Word.new(word, confidence[1...-1].to_f)})
     end
@@ -215,7 +220,7 @@ class Slot
             else
                 # returns nil so coder deccides whether to use run_clarification or do something else,
                 # because maybe the user is trying to jump
-                if escape(@utterances.last, @extractions)
+                if escape(@utterances.last, @selections)
                     return nil
                 else
                     clarification_reaction
@@ -224,19 +229,20 @@ class Slot
             @repetitions += 1
         end
         selection_reaction
-        return @extractions
+        return @selections
     end
 
+    # style question: keep parameters or keep class fields?
     def did_you_say_reaction
-        puts apologetic(@variable.did_you_say_prompt(@extractions))
+        puts apologetic(@variable.did_you_say_prompt(@selections))
         @utterances << get_input
         line = @utterances.last.line
         if Util.no_set.include? line
-            repetition_likelihood(@variable.values - @extractions)
+            repetition_likelihood(@variable.values - @selections)
             puts "Oh, what did you mean?"
             @utterances << get_input
         elsif Util.no_set.find{|no_word| line[no_word] != nil} != nil
-            repetition_likelihood(@variable.values - @extractions)
+            repetition_likelihood(@variable.values - @selections)
         elsif Util.yes_set.find{|no_word| line[no_word] != nil} != nil
             return true
         else
@@ -245,14 +251,12 @@ class Slot
         return false
     end
 
-# TODO: make this actually good
+    # style question: what to name the parameter?
     def repetition_likelihood(extractions)
         extractions.each{|extraction|
-#TODO: an extraction that we thought less likely should increase by less
-#TODO: make sure that when you update likelihoods, you're actually updating the variable's permanent value likelihoods
-# is extractions making copies or references?
-            @variable.prob_mass += extraction.likelihood
-            extraction.likelihood *= 2
+            @variable.prob_mass += extraction.value.likelihood
+            # TODO: make this not dumb
+            extraction.value.likelihood += extraction.confidence
         }
     end
 
@@ -273,43 +277,36 @@ class Slot
     end
 
     def selection_reaction
-        responses = @extractions.map(&:response).compact
+        selected_vals = @selections.map(&:value)
+        responses = selected_vals.map(&:response).compact
         # value specific responses
         responses.each{|response| puts response}
         # general variable response 
         puts @variable.response unless @variable.response.nil?
         # more succinct in following runs
         if @run_count > 1
-            puts @variable.grounding(@extractions, 2)
+            puts @variable.grounding(selected_vals, 2)
         else
-            puts @variable.grounding(@extractions, 1)
+            puts @variable.grounding(selected_vals, 1)
         end
     end
 
-#    def too_many_response
-#        puts "I was looking for at most #{max_extractions} responses, but I heard #{@extractions.size}: #{english_list(@extractions)}. Which of these would you like?"
-        #change probabilities
-
-    # sets @extractions and @confidence
+    # sets @extractions, @selections and @confidence
     # returns 0 if it couldn't find anything at all,
     # otherwise returns confidence probability
     def extract_selection(utterance)
-        extractions = @variable.extract_top(utterance)
-        @extractions = extractions.map{|hash| hash[:value]}
+        @extractions = @variable.extract(utterance)
+        @selections = @variable.top_extractions(@extractions)
         if @extractions.size == 0
             @confidence = 0
         else
-            @confidence = calc_confidence(extractions.map{|hash| hash[:confidence]})
+            @confidence = calc_confidence(@extractions)
         end
         puts "(DEBUG) confidence: " + @confidence.to_s if DEBUG
     end
 
-    def extraction_confidence(value, phrasing, utterance)
-    end
-
-# TODO: something smarter than just the average
-    def calc_confidence(confidences)
-        confidences.reduce(:+) / confidences.size
+    def calc_confidence(extractions)
+        extractions.map(&:confidence).reduce(:+) / extractions.size
     end
 
     def apologetic(prompt)
@@ -481,7 +478,7 @@ class MultiSlot
         else
             confidence= calc_confidence(utterance, @extractions)
         end
-        @extractions[variable] = Selection.new(extractions, confidence)
+        @extractions[variable] = extractions # TODO: used to be Selection.new(...), need to change to new Extraction
         puts "(DEBUG) confidence: " + @confidence[variable].to_s if DEBUG
     end
 
@@ -527,39 +524,40 @@ class MultiSlot
         }
     end
 
-    def selection_reaction(variable, value)
-        responses = @extractions.map(&:response).compact
+    def selection_reaction
+        selected_vals = @selections.map(&:value)
+        responses = @selected_vals.map(&:response).compact
         # value specific responses
-         responses.each{|response| puts response}
+        responses.each{|response| puts response}
         # general variable response 
         puts @variable.response unless @variable.response.nil?
         # more succinct in following runs
         if @run_count > 1
-            puts @variable.grounding(@extractions, 2)
+            puts @variable.grounding(@selected_vals, 2)
         else
-            puts @variable.grounding(@extractions, 1)
+            puts @variable.grounding(@selected_vals, 1)
         end
     end
 
-    def did_you_say_reaction(extractions)
-        puts apologetic(@variable.did_you_say_prompt(extractions))
+    def did_you_say_reaction
+        puts apologetic(@variable.did_you_say_prompt(@selections))
         @utterances << get_input
         line = @utterances.last.line
         if Util.no_set.include? line
-            repetition_likelihood(@variable.values - extractions)
+            repetition_likelihood(@variable.values - @selections)
             puts "Oh, what did you mean?"
             @utterances << get_input
         elsif Util.no_set.find{|no_word| line[no_word] != nil} != nil
-            repetition_likelihood(@variable.values - @extractions)
+            repetition_likelihood(@variable.values - @selections)
         elsif Util.yes_set.find{|no_word| line[no_word] != nil} != nil
             return true
         else
-            repetition_likelihood(extractions)
+            repetition_likelihood(@extractions)
         end
         return false
     end
 
-# TODO: make this actually good
+    # TODO: make this actually good
     def repetition_likelihood(extractions)
         extractions.each{|extraction|
             @variable.prob_mass += selection.likelihood
