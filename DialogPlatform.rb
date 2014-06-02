@@ -33,7 +33,7 @@ end
 
 #
 class Variable
-    attr_accessor :name, :values, :prob_mass, :max_selection, :selection
+    attr_accessor :name, :values, :prob_mass, :max_selection, :selection, :prefixes, :suffixes
 
     # Params:
     # +name+:: name of the variable, such as 'departure city'
@@ -101,10 +101,6 @@ class Variable
         end
     end
 
-    def prefixes
-        @prefixes
-    end
-
     def suffixes=(arr)
         if(arr.kind_of?(Array)) then
             @suffixes = arr
@@ -113,10 +109,6 @@ class Variable
         else
             p "ERROR, Suffixes are not in usable form."
         end
-    end
-
-    def suffixes
-        @suffixes
     end
 
     # return array of hash of value, confidence and position
@@ -528,12 +520,20 @@ class MultiSlot
         line.scan(/(\S+)\s?(\([\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1) : Word.new(word, confidence[1...-1].to_f)}
     end
 
+# OKAY, here's the new, simple plan:
+# first, extract stuff
+# then, if it looks like they're trying to replace, do replace reaction
+# else, if there's anything in the threshold range, do did_you_say reaction
+# else, if there was a successful extraction, do remaining_vars reaction
+# else, if it looks like they're trying to escape, do escape
+# else, do extracted_nothing reaction
     def run_cycle
         @utterances << get_input
         while(true)
             extracted = 0
             @extractions = {}
             extracted_something = false
+#TODO: decompose
             remaining_vars.each {|variable|
                 extract_selection(@utterances.last, variable)
                 selections = @selections[variable]
@@ -548,11 +548,6 @@ class MultiSlot
                     end
                 end
             }
-# extract_replace on @selections
-# if replace_reaction not called
-#    did_you_say_reaction on @extractions within threshold range
-# if neither of those called, remaining_vars_reaction
-# (if nothing called or extracted, check if escape)
             if remaining_needed_vars.empty?
                 break
             elsif extracted_something
@@ -685,13 +680,14 @@ class MultiSlot
     end
 
 # same format as replace_reaction
-    def did_you_say_reaction(extractions)
+    def did_you_say_reaction(extractions_hash)
         puts apologetic(@variable.did_you_say_prompt(extractions_hash))
         @utterances << get_input
         utterance = @utterances.last
         answer = extract_yes_no(utterance)
         if answer.value == :no
             rejection_likelihood(extractions_hash, answer.confidence)
+# TODO: only try_again if they're setting a subset of the variables in extractions_hash.keys
             try_again = extract(utterance)
             if try_again
                 return did_you_say_reaction(try_again)
