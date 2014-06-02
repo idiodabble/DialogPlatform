@@ -3,13 +3,12 @@
 
 # Prioritized TODO list
 
-# note: there's currently an embarassing amount of duplicated code between Slot and Multislot. To some extent this is unavoidable because the functionality is similar but not identical, but when we improve code in one area we'll have to be careful to port it to the other
+# Note: I'll probably rename selections in slot to top_extractions to make it fit with Multislot terminology
 
 # to finish up the routing logic of Multislot, I need to:
 # 1. write the code for handling user trying to change previous slots
 # 2. debugging
-# 3. cleanup variable or method names to be more clear (like extractions and selections and whether they should be plural or singular, etc)
-# 4. write the code for preconditions (so like, you'll only see the question about seat numbers if you're flying an airline that assigns seat numbers)
+# 3. write the code for preconditions (so like, you'll only see the question about seat numbers if you're flying an airline that assigns seat numbers)
 
 # biggest ticket items besides the routing, which Jeremy could work on if he likes:
 # 1. everything to do with probability (right now I just have arbitrary hacks, like when I want something to become more likely right now I just double the scores)
@@ -34,7 +33,7 @@ end
 
 #
 class Variable
-    attr_accessor :name, :values, :prob_mass, :max_selection, :selection
+    attr_accessor :name, :values, :prob_mass, :max_selection, :selection, :prefixes, :suffixes
 
     # Params:
     # +name+:: name of the variable, such as 'departure city'
@@ -102,10 +101,6 @@ class Variable
         end
     end
 
-    def prefixes
-        @prefixes
-    end
-
     def suffixes=(arr)
         if(arr.kind_of?(Array)) then
             @suffixes = arr
@@ -114,10 +109,6 @@ class Variable
         else
             p "ERROR, Suffixes are not in usable form."
         end
-    end
-
-    def suffixes
-        @suffixes
     end
 
     # return array of hash of value, confidence and position
@@ -349,17 +340,22 @@ class Slot
         @utterances << get_input
         line = @utterances.last.line
         if Util.no_set.include? line
-            repetition_likelihood(@variable.values - @selections)
+            rejection_likelihood(@selections) if @selections.size == 1
             puts "Oh, what did you mean?"
             @utterances << get_input
         elsif Util.no_set.find{|no_word| line[no_word] != nil} != nil
-            repetition_likelihood(@variable.values - @selections)
+            rejection_likelihood(@selections) if @selections.size == 1
         elsif Util.yes_set.find{|no_word| line[no_word] != nil} != nil
             return true
         else
             repetition_likelihood(@extractions)
         end
         return false
+    end
+
+    # again, do something less dumb
+    def rejection_likelihood(extractions)
+        repetition_likelihood(@variable.values - extractions)
     end
 
     # style question: what to name the parameter?
@@ -462,11 +458,20 @@ class Util
     end
 
     def self.yes_set
-        ['yes', 'yep', 'yeah', 'yea', 'aye', 'affirmative', 'definitely', 'certainly', 'positively']
+        ['yes', 'yep', 'yeah', 'yea', 'aye']
     end
 
+    def self.certain_set
+        ['definitely', 'certainly', 'absolutely', 'positively']
+    end
+
+    # Note: 'not' is definitely not the same as 'no', but it often works out the same
     def self.no_set
-        ['no', 'nope', 'nah', 'nay', 'negative', 'nix', 'never', 'not at all', 'not in the slightest', 'not by any means']
+        ['no', 'nope', 'nah', 'nay', 'negative', 'nix', 'never', 'not']
+    end
+
+    def self.amplifier_set
+        ['really', 'very', 'quite', 'extremely', 'abundantly', 'copiously']
     end
 end
 
@@ -520,62 +525,56 @@ class MultiSlot
         line.scan(/(\S+)\s?(\([\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1) : Word.new(word, confidence[1...-1].to_f)}
     end
 
+# OKAY, here's the new, simple plan:
+# first, extract stuff
+# then, if it looks like they're trying to replace, do replace reaction
+# else, if there's anything in the threshold range, do did_you_say reaction
+# else, if there was a successful extraction, do remaining_vars reaction
+# else, if it looks like they're trying to escape, do escape
+# else, do extracted_nothing reaction
     def run_cycle
         @utterances << get_input
         while(true)
             extracted = 0
             @extractions = {}
             extracted_something = false
-            @variables.each {|variable|
+#TODO: decompose
+            remaining_vars.each {|variable|
                 extract_selection(@utterances.last, variable)
-# if we extract a value for a variable that already has a selection
-#    if it's the same value, just incr the confidence
-#    if not, decr the confidence, then
-#        if it's past a certain threshold, ask them if they're trying to change it
-# also: if this value might be a value for a different variable, we can ignore this case
-# but how?
-
-# if we extract a value for an empty variable
                 selections = @selections[variable]
                 extractions = @extractions[variable]
-                if extractions.confidence > @extract_threshold
-                    if selections.nil?
-                        @selections[variable] = extractions
+                top_extractions = @top_extractions[variable]
+                if @confidences[variable] > @extract_threshold
+#TODO: does the == comparison work?
+                    if selections.nil? || selections == top_extraction
+                        @selections[variable] = top_extractions
                         extracted_something = true
                         selection_reaction(variable, extractions)
-                    elsif extractions.confidence > selections.confidence
-                        replace_response(selections, extractions, variable)
-                        @selections[variable] = extractions
-                        extracted_something = true
                     end
                 end
             }
-# where does escape go???
-            if false
-# check for change (change____var name: value), if accept, ask for confirmation, if yes change it, if no reduce likelihood
-# also: handle "Flying on the 17th and change my destinatino to San Diego"?
+            if remaining_needed_vars.empty?
+                break
+            elsif extracted_something
+                remaining_vars_reaction
             else
-                if remaining_needed_vars.empty?
-                    break
-                elsif extracted_something
-                    remaining_vars_reaction
+# this should be elsewhere?
+# should only have at most one follow up reaction
+                best_extraction = @top_extractions.values.reduce{|a,b| a.confidence > b.confidence ? a : b}
+                if best_extraction.confidence >= clarify_threshold
+                    break if did_you_say_reaction(best_extraction)
                 else
-                    best_extraction = @extractions.values.reduce{|a,b| a.confidence > b.confidence ? a : b}
-                    if best_extraction.confidence >= clarify_threshold
-                        break if did_you_say_reaction(best_extraction)
+                    if escape(@utterances.last, @extractions)
+                        return nil
                     else
-                        if escape(@utterances.last, @extractions)
-                            return nil
-                        else
-                            extracted_nothing_reaction
-                        end
+                        extracted_nothing_reaction
                     end
                 end
             end
             @repetitions += 1
         end
         final_selection_reaction
-        return true
+        return @selections
     end
 
     def extract_selection(utterance, variable)
@@ -588,7 +587,8 @@ class MultiSlot
         else
             confidence= calc_confidence(utterance, @extractions)
         end
-        puts "(DEBUG) confidence: " + @confidence[variable].to_s if DEBUG
+        @confidences[variable] = confidence
+        puts "(DEBUG) confidence: " + @confidences[variable].to_s if DEBUG
     end
 
     def remaining_vars_reaction
@@ -606,8 +606,12 @@ class MultiSlot
     end
 
     def extracted_nothing_prompt
-        puts apologetic("I didn't understand.")
+        puts apologetic(dont_understand_prompt)
         remaining_vars_prompt
+    end
+
+    def dont_understand_prompt
+        return "I don't understand what you said."
     end
 
 # BIGGEST TODO: use probabilities to get confidence, right now I've just got a mind boggling stupid hack
@@ -616,8 +620,11 @@ class MultiSlot
         (confidence[variable] + extractions[variable].first.likelihood) / 2
     end
 
-    def replace_response(old_selections, new_selections, variable)
 # TODO
+    def replace_reaction
+# check for change (change____var name: value), if accept, ask for confirmation, if yes change it, if no reduce likelihood
+                    #extractions.confidence > selections.confidence
+                     #   replace_response(selections, extractions, variable)
     end
 
     def final_selection_reaction
@@ -648,30 +655,99 @@ class MultiSlot
         end
     end
 
-    def did_you_say_reaction
-        puts apologetic(@variable.did_you_say_prompt(@selections))
+    def replace_reaction(extractions_hash)
+        puts apologetic(@variable.replace_prompt(extractions_hash))
         @utterances << get_input
-        line = @utterances.last.line
-        if Util.no_set.include? line
-            repetition_likelihood(@variable.values - @selections)
-            puts "Oh, what did you mean?"
-            @utterances << get_input
-        elsif Util.no_set.find{|no_word| line[no_word] != nil} != nil
-            repetition_likelihood(@variable.values - @selections)
-        elsif Util.yes_set.find{|no_word| line[no_word] != nil} != nil
-            return true
-        else
-            repetition_likelihood(@extractions)
+        utterance = @utterances.last
+        answer = extract_yes_no(utterance)
+        if answer.value == :no
+            rejection_likelihood(extractions_hash, answer.confidence)
+            try_again = extract_replace(utterance)
+            if try_again
+                return replace_reaction(try_again)
+            else
+                return
+            end
+        elsif answer.value == :yes || #repeated
+            confirmation_likelihood(extractions_hash, answer.confidence)
+            return
         end
-        return false
+        puts apologetic(dont_understand_prompt)
+        return
     end
 
-    # TODO: make this actually good
-    def repetition_likelihood(extractions)
-        extractions.each{|extraction|
-            @variable.prob_mass += selection.likelihood
-            extraction.likelihood *= 2
-        }
+    def replace_prompt(extractions_hash)
+# TODO: need to be able to handle changing multiple variables
+    end
+
+    def did_you_say_prompt(extractions_hash)
+# TODO: need to be able to handle changing multiple variables
+    end
+
+# same format as replace_reaction
+    def did_you_say_reaction(extractions_hash)
+        puts apologetic(@variable.did_you_say_prompt(extractions_hash))
+        @utterances << get_input
+        utterance = @utterances.last
+        answer = extract_yes_no(utterance)
+        if answer.value == :no
+            rejection_likelihood(extractions_hash, answer.confidence)
+# TODO: only try_again if they're setting a subset of the variables in extractions_hash.keys
+            try_again = extract(utterance)
+            if try_again
+                return did_you_say_reaction(try_again)
+            else
+                return
+            end
+        elsif answer.value == :yes || #repeated
+            confirmation_likelihood(extractions_hash, answer.confidence)
+            return
+        end
+        puts apologetic(dont_understand_prompt)
+        return
+    end
+
+# when overlapped, increase probability of both values in both variables (or could be more than 2), but not as big an increase (for n overlap, could divide by n)
+
+# replacements: look for "change", "actually", "replace", etc. and name of variable in selections
+# coder will need to be able to put in synonyms for name of variable
+    def extract_replace(utterance)
+        false# TODO
+    end
+
+    def extract_yes_no(utterance)
+        if utterance.size == 1
+            word = utterance.first
+            if Util.no_set.include? word
+                return Extraction.new(:no, word.confidence) 
+            elsif Util.yes_set.include? word
+                return Extraction.new(:yes, word.confidence)
+            end
+        end
+        no = utterance.find{|word| Util.no_set.include? word}
+        yes = utterance.find{|word| Util.yes_set.include? word}
+        if no && yes.nil?
+            return Extraction.new(:no, no.confidence / utterance.size)
+        elsif no.nil? && yes
+            return Extraction.new(:yes, yes.confidence / utterance.size)
+        end
+        return Extraction.new
+    end
+
+    def rejection_likelihood(extractions_hash, confidence)
+        inverse_hash = {}
+        extractions_hash.each{|variable, extractions| inverse_hash[variable] = variable.values - extractions}
+        confirmation_likelihood(inverse_hash, confidence)
+    end
+
+    def confirmation_likelihood(extractions_hash, confidence)
+# TODO: if past threshold, set selections
+        extractions_hash.each do |variable, extractions|
+            extractions.each do |extraction|
+                variable.prob_mass += extraction.value.likelihood
+                extraction.value.likelihood += extraction.confidence * confidence
+            end
+        end
     end
 
     def escape(utterance, extractions)
