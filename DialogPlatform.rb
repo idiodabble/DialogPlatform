@@ -127,7 +127,7 @@ class Variable
 
         @values.each do |value|
             confidence = calc_confidence(line, value)
-            extractions.concat << Extraction.new(value, confidence, 0)
+            extractions.concat << Extraction.new(value, confidence * confidence, 0)
         end
         extractions = scores_to_prob(extractions)
         puts "(DEBUG) extractions: " + extractions.to_s if DEBUG
@@ -224,12 +224,17 @@ class Variable
             end
         end
         len = [l_len, p_len].max
-        # p "edit results - " + line + " - " + phrasing + " " + (1 - m[l_len][p_len].to_f/len).to_s
         1 - (m[l_len][p_len].to_f/len)
     end
 
     def scores_to_prob(extractions)
-        extractions
+        sum = 0
+        extractions.each do |extraction|
+            sum = sum + extraction.confidence
+        end
+        extractions.each do |extraction|
+            extraction.confidence = extraction.confidence / sum
+        end
     end
 
     def top_extractions(extractions)
