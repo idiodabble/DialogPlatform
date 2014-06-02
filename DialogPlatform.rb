@@ -205,7 +205,12 @@ class Slot
     def get_input
         p @variable.values.map{|value| [value.likelihood, value]} if DEBUG
         line = gets.chomp.downcase
-        Utterance.new(line.scan(/(\S+)\s?(\([\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1) : Word.new(word, confidence[1...-1].to_f)})
+        utterance = Utterance.new(line.scan(/(\S+)\s?(\([\+-]?[\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1) : Word.new(word, confidence[1...-1].to_f)})
+        if utterance.find{|word| word.confidence <= 0 || word.confidence > 1}
+            puts "Malformed input: Confidence should be in the range (0,1]. Please respond again."
+            return get_input
+        end
+        return utterance
     end
 
     def run_cycle
@@ -417,6 +422,14 @@ class MultiSlot
             extracted_something = false
             @variables.each {|variable|
                 extract_selection(@utterances.last, variable)
+# if we extract a value for a variable that already has a selection
+#    if it's the same value, just incr the confidence
+#    if not, decr the confidence, then
+#        if it's past a certain threshold, ask them if they're trying to change it
+# also: if this value might be a value for a different variable, we can ignore this case
+# but how?
+
+# if we extract a value for an empty variable
                 selections = @selections[variable]
                 extractions = @extractions[variable]
                 if extractions.confidence > @extract_threshold
@@ -460,25 +473,15 @@ class MultiSlot
     end
 
     def extract_selection(utterance, variable)
-# TODO: use edit distance
         line = utterance.line
-        extractions = variable.values.map { |value|
-            phrasings = value.phrasings.nil? ? variable.phrasings(value) : value.phrasings
-            phrasing_index = phrasings.find_index{|phrasing| line[phrasing] != nil}
-            [value, phrasing_index] unless phrasing_index.nil?
-        }.compact
-# orders the extractions by probability, then by most recently said in utterance
-        extractions.sort{|a, b|
-            first_order = b[0].likelihood <=> a[0].likelihood
-            first_order == 0 ? b[1] <=> b[1] : first_order
-        }
-        extractions = extractions.map{|value, phrasing_index| value}.first variable.max_selection
+# TODO: need to get rid of phrasing overlaps
+        @extractions[variable] = @variable.extract(utterance)
+        @top_extractions[variable] = @variable.top_extractions(@extractions)
         if extractions.size == 0
             confidence = 0
         else
             confidence= calc_confidence(utterance, @extractions)
         end
-        @extractions[variable] = extractions # TODO: used to be Selection.new(...), need to change to new Extraction
         puts "(DEBUG) confidence: " + @confidence[variable].to_s if DEBUG
     end
 
