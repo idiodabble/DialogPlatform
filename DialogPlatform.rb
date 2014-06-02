@@ -60,10 +60,6 @@ class Variable
         @max_selection = max_selection
     end
 
-    def phrasings(value)
-        [/#{value.downcase}/]
-    end
-
     def response
         nil
     end
@@ -96,24 +92,59 @@ class Variable
         "I didn't hear you, did you say #{Util.english_list(extractions.map(&:value))}?"
     end
 
+    def prefixes=(arr)
+        if(arr.kind_of?(Array)) then
+            @prefixes = arr
+        elsif(arr.kind_of?(String)) then
+            @prefixes = [arr]
+        else
+            p "ERROR, Prefixes are not in usable form."
+        end
+    end
+
+    def prefixes
+        @prefixes
+    end
+
+    def suffixes=(arr)
+        if(arr.kind_of?(Array)) then
+            @suffixes = arr
+        elsif(arr.kind_of?(String)) then
+            @suffixes = [arr]
+        else
+            p "ERROR, Suffixes are not in usable form."
+        end
+    end
+
+    def suffixes
+        @suffixes
+    end
+
     # return array of hash of value, confidence and position
     def extract(utterance)
-# TODO: use edit distance
         line = utterance.line
-        extractions = @values.map { |value|
-            phrasings = value.phrasings.nil? ? phrasings(value) : value.phrasings
-            phrasing = phrasings.find{|phrasing| line[phrasing] != nil}
-            unless phrasing.nil?
-                confidence = calc_confidence(utterance, value, phrasing)
-# TODO: could get position this when we do line[phrasing]
-                Extraction.new(value, confidence, line.index(phrasing))
-            end
-        }.compact
-# orders the extractions by probability, then by most recently said in utterance
-# also, what to do if 'san francisco' said once but 'san diego' said twice?
+        extractions = Array.new
+
+        @values.each do |value|
+            confidence = calc_confidence(line, value)
+            extractions.concat << Extraction.new(value, confidence, 0)
+        end
+        extractions = scores_to_prob(extractions)
         puts "(DEBUG) extractions: " + extractions.to_s if DEBUG
         return extractions
     end
+
+    # extractions = @values.map { |value|
+    #     phrasings = value.phrasings.nil? ? phrasings(value) : value.phrasings
+    #     phrasing = phrasings.find{|phrasing| line[phrasing] != nil}
+    #     unless phrasing.nil?
+    #         confidence = calc_confidence(utterance, value, phrasing)
+    #         # TODO: could get position this when we do line[phrasing]
+    #         Extraction.new(value, confidence, line.index(phrasing))
+    #     end
+    # }.compact
+    # orders the extractions by probability, then by most recently said in utterance
+    # also, what to do if 'san francisco' said once but 'san diego' said twice?
 
     # given an utterance (which is an array of Word, with the .line method to get rid of parenthetical likelihoods)
     # and given all the fields in this Variable class, such as @values
@@ -121,14 +152,84 @@ class Variable
     # {"San Diego" => 0.8, "San Francisco" => 0.2, "Los Angeles" => 0}
     # or however you want to organize it
     # also, keep in mind that every Word has an associated likelihood, and same goes for every Value
-    def edit_dist_extract(utterance)
+    # words = Util.get_words_from_phrasing(utterance, phrasing)
+    # min_conf = words.map(&:confidence).min
+    # TODO do something smarter
+    # min_conf * value.likelihood * @values.size
+
+    def calc_confidence(line, value)
+        phrasings = get_possible_phrasings(line, value)
+        max_score = 0
+        line_len = line.length
+        phrasings.each do |phrase|
+            score = 0
+            phrase_len = phrase.length
+            if line_len >= phrase_len
+                if line_len > phrase_len + 10
+                    max_length = phrase_len + 10
+                else
+                    max_length = line_len
+                end
+                (phrase_len..max_length).each do |size|
+                    (0..(line_len - size - 1)).each do |start_index|
+                        sub_str = line[start_index, start_index + size]
+                        score = edit_distance(sub_str, phrase)
+                        max_score = [max_score, score].max
+                    end
+                end
+            else
+                max_score = edit_distance(line, phrase)
+            end
+        end
+        max_score
     end
 
-    def calc_confidence(utterance, value, phrasing)
-        words = Util.get_words_from_phrasing(utterance, phrasing)
-        min_conf = words.map(&:confidence).min
-# TODO do something smarter
-        min_conf * value.likelihood * @values.size
+    def get_possible_phrasings(line, value)
+        valid_phrasings = Array.new
+        valid_phrasings << value
+        @prefixes.each do |pre|
+            if line.include? pre
+                valid_phrasings << (pre + ' ' + value)
+            end
+        end
+        @suffixes.each do |suf|
+            if line.include? suf
+                valid_phrasings << (value + ' ' + suf)
+            end
+        end
+    end
+
+    def edit_distance(line, phrasing)
+        l = line.downcase
+        p = phrasing.downcase
+        l_len = line.length
+        p_len = phrasing.length
+        return p_len if l_len == 0
+        return l_len if p_len == 0
+        m = Array.new(l_len + 1) {Array.new(p_len + 1)}
+
+        (0..l_len).each {|i| m[i][0] = i}
+        (0..p_len).each {|j| m[0][j] = j}
+        (1..p_len).each do |j|
+            (1..l_len).each do |i|
+                m[i][j] = if l[i-1] == p[j-1]  # adjust index into string
+                    m[i-1][j-1]       # no operation required
+                else
+                    [
+                        m[i-1][j]+1,    # deletion
+                        m[i][j-1]+1,    # insertion
+                        m[i-1][j-1]+1  # substitution
+                    ].min
+                end
+            end
+        end
+        len = [l_len, p_len].max
+        # p "edit results - " + line + " - " + phrasing + " " + (1 - m[l_len][p_len].to_f/len).to_s
+        1 - (m[l_len][p_len].to_f/len)
+    end
+
+    def scores_to_prob(extractions)
+        extractions
     end
 
     def top_extractions(extractions)
