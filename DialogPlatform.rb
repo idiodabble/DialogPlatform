@@ -525,68 +525,82 @@ class MultiSlot
         line.scan(/(\S+)\s?(\([\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1) : Word.new(word, confidence[1...-1].to_f)}
     end
 
+# is there a need for different thresholds for different variables?
+
 # first, extract stuff
+# if there were successful extractions, ground them
 # then, if it looks like they're trying to replace (past change_threshold), do replace reaction
 # else, if there's anything in the extract to clarify_threshold range, do did_you_say reaction
-# else, if there was a successful extraction, do remaining_vars reaction
-# else, if it looks like they're trying to escape (past escape_threshold?), do escape
-# else, do extracted_nothing reaction
+# else, if there were no extractions and it looks like they're trying to escape (past escape_threshold?), do escape
+# else, if there were no extractions, do extracted_nothing reaction
     def run_cycle
         while(!remaining_vars_needed.empty?)
+            remaining_vars_prompt
             @utterances << get_input
             utterance = @utterances.last
-            extractions_hash = extract_name?(utterance, remaining_vars)
+            extractions_hash = extract(utterance, remaining_vars)
             confident_hash = extractions_hash.select{|var, extractions| extractions.confidence > @select_threshold}
             change_hash = extract_replace(utterance, @selections.keys)
-# is there a need for different thresholds for different variables?
-            clarify_hash = (extractions_hash - confident_hash).select{|var, extractions| extractions.confidence > @clarify_threshold}
+            maybe_hash = (extractions_hash - confident_hash).select{|var, extractions| extractions.confidence > @clarify_threshold}
+
+            selection_reaction(confident_hash) unless confident_hash.empty?
+
             if !change_extractions_hash.empty?
-                replace_reaction
+                change_reaction(change_hash)
             elsif !clarify_hash.empty?
-                did_you_say_reaction
-            elsif !confident_hash.empty?
-                remaining_vars_reaction
-            elsif escape
-                return @selections
-            else
-                extracted_nothing_reaction
+                did_you_say_reaction(maybe_hash)
+            elsif confident_hash.empty?
+                if escape
+                    return @selections
+                else
+                    extracted_nothing_reaction
+                end
             end
-            # TODO: set @selections
         end
         final_selection_reaction
         return @selections
     end
 
-    def just_holding_on_to_this_code_for_now
-            remaining_vars.each {|variable|
-                extract_selection(@utterances.last, variable)
-                selections = @selections[variable]
-                extractions = @extractions[variable]
-                top_extractions = @top_extractions[variable]
-                if @confidences[variable] > @extract_threshold
-#TODO: does the == comparison work?
-                    if selections.nil? || selections == top_extraction
-                        @selections[variable] = top_extractions
-                        extracted_something = true
-                        selection_reaction(variable, extractions)
-                    end
-                end
-            }
-            #best_extraction = @top_extractions.values.reduce{|a,b| a.confidence > b.confidence ? a : b}
+# TODO: need to get rid of phrasing overlaps
+    def extract(utterance, variables)
+        extractions_hash = {}
+        variables.each do |variable|
+            line = utterance.line
+            extractions = variable.extract(utterance)
+            top_extractions = variable.top_extractions(extractions)
+            extractions_hash[variable] = top_extractions
+            if top_extractions.size == 0
+                confidence = 0
+            else
+                confidence= calc_confidence(utterance, top_extractions)
+            end
+            top_extractions.confidence = confidence
+            puts "(DEBUG) confidence: " + confidence.to_s if DEBUG
+        end
+        return extractions_hash
     end
 
-    def extract_selection(utterance, variable)
-        line = utterance.line
-# TODO: need to get rid of phrasing overlaps
-        @extractions[variable] = @variable.extract(utterance)
-        @top_extractions[variable] = @variable.top_extractions(@extractions)
-        if extractions.size == 0
-            confidence = 0
-        else
-            confidence= calc_confidence(utterance, @extractions)
+# needs to set @selections and ground them,
+# will be called by change_reaction and did_you_say_reaction
+    def selection_reaction(selections_hash)
+        selections_hash.each do |variable, selections|
+            @selections[variable] = selections
         end
-        @confidences[variable] = confidence
-        puts "(DEBUG) confidence: " + @confidences[variable].to_s if DEBUG
+        selections_hash.each do |variable, selections|
+            selected_vals = selections.map(&:value)
+            responses = selected_vals.map(&:response).compact
+            # value specific responses
+            responses.each{|response| puts response}
+            # general variable response 
+            puts variable.response unless variable.response.nil?
+        end
+        # more succinct in following runs
+# TODO: grounding needs to handle multiple variables at a time
+        if @run_count > 1
+            puts @variable.grounding(@selected_vals, 2)
+        else
+            puts @variable.grounding(@selected_vals, 1)
+        end
     end
 
     def remaining_vars_reaction
@@ -612,14 +626,13 @@ class MultiSlot
         "I don't understand what you said."
     end
 
-# BIGGEST TODO: use probabilities to get confidence, right now I've just got a mind boggling stupid hack
     def calc_confidence(utterance, extractions)
         confidence = utterance.map(&:confidence).reduce(:+) / utterance.size
         (confidence[variable] + extractions[variable].first.likelihood) / 2
     end
 
 # TODO
-    def replace_reaction
+    def change_reaction
 # check for change (change____var name: value), if accept, ask for confirmation, if yes change it, if no reduce likelihood
                     #extractions.confidence > selections.confidence
                      #   replace_response(selections, extractions, variable)
@@ -638,22 +651,7 @@ class MultiSlot
         }
     end
 
-    def selection_reaction
-        selected_vals = @selections.map(&:value)
-        responses = @selected_vals.map(&:response).compact
-        # value specific responses
-        responses.each{|response| puts response}
-        # general variable response 
-        puts @variable.response unless @variable.response.nil?
-        # more succinct in following runs
-        if @run_count > 1
-            puts @variable.grounding(@selected_vals, 2)
-        else
-            puts @variable.grounding(@selected_vals, 1)
-        end
-    end
-
-    def replace_reaction(extractions_hash)
+    def change_reaction(extractions_hash)
         puts apologetic(@variable.replace_prompt(extractions_hash))
         @utterances << get_input
         utterance = @utterances.last
@@ -674,7 +672,7 @@ class MultiSlot
         return
     end
 
-    def replace_prompt(extractions_hash)
+    def change_prompt(extractions_hash)
 # TODO: need to be able to handle changing multiple variables
     end
 
