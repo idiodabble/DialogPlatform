@@ -158,7 +158,7 @@ class Variable
 
     def calc_confidence(line, value)
         phrasings = get_possible_phrasings(line, value)
-        p "phrasings", phrasings
+        # p "phrasings", phrasings
         max_score = 0
         line_len = line.length
         phrasings.each do |phrase|
@@ -186,8 +186,7 @@ class Variable
 
     def get_possible_phrasings(line, value)
         p "line", line, "value", value
-        valid_phrasings = Array.new
-        valid_phrasings << value
+        valid_phrasings = [value]
         prefixes = @prefixes.concat value.prefixes
         suffixes = @suffixes.concat value.suffixes
         prefixes.each do |pre|
@@ -200,6 +199,7 @@ class Variable
                 valid_phrasings << (value + ' ' + suf)
             end
         end
+        valid_phrasings
     end
 
     def edit_distance(line, phrasing)
