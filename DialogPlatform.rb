@@ -4,8 +4,21 @@
 # Prioritized TODO list
 
 # 1. write code to handle overlaps (same values in different variables) in MultiSlot
-# 2. write the code for preconditions (so like, you'll only see the question about seat numbers if you're flying an airline that assigns seat numbers)
-# 3. do scores more probablisticly
+# 2. fix scoring, do them more probablisticly
+# 3. write a Platform class, higher than Slot or MultiSlot, that will take advantageo of methods like preconditions and next_slot
+
+# Possible extention: be able to look up things and give the user options, i.e. "There are no flights at this time" or "We have flights available for $500, $400 and $300"
+
+# Not working TODO LIST:
+
+# San (0.1) Diego (0.1) is treated the same as San Diego
+
+# In the time MultiSlot in Reservations, if you say
+# - January 2014
+# - No
+# - Afternoon of the 21st
+# - 21st
+# It sets 2 for the day instead of 21
 
 DEBUG = true
 
@@ -790,8 +803,8 @@ class MultiSlot
 # TODO: if past threshold, set selections
         extractions_hash.each do |variable, extractions|
             extractions.each do |extraction|
-                variable.prob_mass += extraction.value.likelihood
-                extraction.value.likelihood += extraction.confidence * confidence
+                variable.prob_mass += extraction.likelihood * confidence
+                extraction.likelihood += extraction.likelihood * confidence
             end
         end
     end
@@ -802,7 +815,6 @@ class MultiSlot
 
 # TODO
     def final_selection_reaction
-        puts "all done!"
     end
 
     def apologetic(prompt)
