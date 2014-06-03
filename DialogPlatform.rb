@@ -482,10 +482,10 @@ class MultiSlot
     # extractions refer to any possible selection of values we think the user might be making from their utterance
     # selections refer to extractions that we believe are true
     # both are hashes from Variable to Selection
-    def initialize(variables, prompts, variables_needed = variables, extract_threshold = 0.6, clarify_threshold = 0.3, change_threshold = 0.6)
+    def initialize(variables, prompts, variables_needed = variables, select_threshold = 0.6, clarify_threshold = 0.3, change_threshold = 0.6)
         @variables = variables
         @prompts = prompts
-        @extract_threshold = extract_threshold
+        @select_threshold = select_threshold
         @clarify_threshold = clarify_threshold
         @change_threshold = change_threshold
         @utterances = []
@@ -520,20 +520,39 @@ class MultiSlot
         line.scan(/(\S+)\s?(\([\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1) : Word.new(word, confidence[1...-1].to_f)}
     end
 
-# OKAY, here's the new, simple plan:
 # first, extract stuff
-# then, if it looks like they're trying to replace, do replace reaction
-# else, if there's anything in the threshold range, do did_you_say reaction
+# then, if it looks like they're trying to replace (past change_threshold), do replace reaction
+# else, if there's anything in the extract to clarify_threshold range, do did_you_say reaction
 # else, if there was a successful extraction, do remaining_vars reaction
-# else, if it looks like they're trying to escape, do escape
+# else, if it looks like they're trying to escape (past escape_threshold?), do escape
 # else, do extracted_nothing reaction
     def run_cycle
-        @utterances << get_input
-        while(true)
-            extracted = 0
-            @extractions = {}
-            extracted_something = false
-#TODO: decompose
+        while(!remaining_vars_needed.empty?)
+            @utterances << get_input
+            utterance = @utterances.last
+            extractions_hash = extract_name?(utterance, remaining_vars)
+            confident_hash = extractions_hash.select{|var, extractions| extractions.confidence > @select_threshold}
+            change_hash = extract_replace(utterance, @selections.keys)
+# is there a need for different thresholds for different variables?
+            clarify_hash = (extractions_hash - confident_hash).select{|var, extractions| extractions.confidence > @clarify_threshold}
+            if !change_extractions_hash.empty?
+                replace_reaction
+            elsif !clarify_hash.empty?
+                did_you_say_reaction
+            elsif !confident_hash.empty?
+                remaining_vars_reaction
+            elsif escape
+                return @selections
+            else
+                extracted_nothing_reaction
+            end
+            # TODO: set @selections
+        end
+        final_selection_reaction
+        return @selections
+    end
+
+    def just_holding_on_to_this_code_for_now
             remaining_vars.each {|variable|
                 extract_selection(@utterances.last, variable)
                 selections = @selections[variable]
@@ -548,28 +567,7 @@ class MultiSlot
                     end
                 end
             }
-            if remaining_needed_vars.empty?
-                break
-            elsif extracted_something
-                remaining_vars_reaction
-            else
-# this should be elsewhere?
-# should only have at most one follow up reaction
-                best_extraction = @top_extractions.values.reduce{|a,b| a.confidence > b.confidence ? a : b}
-                if best_extraction.confidence >= clarify_threshold
-                    break if did_you_say_reaction(best_extraction)
-                else
-                    if escape(@utterances.last, @extractions)
-                        return nil
-                    else
-                        extracted_nothing_reaction
-                    end
-                end
-            end
-            @repetitions += 1
-        end
-        final_selection_reaction
-        return @selections
+            #best_extraction = @top_extractions.values.reduce{|a,b| a.confidence > b.confidence ? a : b}
     end
 
     def extract_selection(utterance, variable)
@@ -587,26 +585,26 @@ class MultiSlot
     end
 
     def remaining_vars_reaction
-        remaining_vars_prompt
+        puts remaining_vars_prompt
         @utterances << get_input
     end
 
     def remaining_vars_prompt
-        puts "What is your #{english_list(remaining_vars.map(&:name))}?"
+        "What is your #{english_list(remaining_vars.map(&:name))}?"
     end
 
     def extracted_nothing_reaction
-        extracted_nothing_prompt
+        puts extracted_nothing_prompt
         @utterances << get_input
     end
 
     def extracted_nothing_prompt
         puts apologetic(dont_understand_prompt)
-        remaining_vars_prompt
+        puts remaining_vars_prompt
     end
 
     def dont_understand_prompt
-        return "I don't understand what you said."
+        "I don't understand what you said."
     end
 
 # BIGGEST TODO: use probabilities to get confidence, right now I've just got a mind boggling stupid hack
