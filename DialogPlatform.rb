@@ -483,6 +483,10 @@ class Util
     def self.amplifier_set
         ['really', 'very', 'quite', 'extremely', 'abundantly', 'copiously']
     end
+
+    def self.change_set
+        ['change', 'actually', 'replace', 'switch', 'swap']
+    end
 end
 
 # TODO: when extracting multiple slots at a time, need to ignore overlapped values. e.g.:
@@ -734,8 +738,18 @@ class MultiSlot
 
 # replacements: look for "change", "actually", "replace", etc. and name of variable in selections
 # coder will need to be able to put in synonyms for name of variable
-    def extract_change(utterance)
-        false# TODO
+    def extract_change(utterance, variables)
+        change_hash = {}
+        variables.each do |variable|
+            if utterance.include? variable.name && !(utterance | Util.change_set).empty?
+                extractions = variable.extract(utterance)
+# TODO: make threshold also consider confidence in variable.name and change_set
+                if !extractions.empty? && extractions.confidence >= change_threshold
+                    change_hash[variable] = extractions
+                end
+            end
+        end
+        return change_hash
     end
 
     def extract_yes_no(utterance)
