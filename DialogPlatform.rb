@@ -7,7 +7,7 @@
 # 2. write the code for preconditions (so like, you'll only see the question about seat numbers if you're flying an airline that assigns seat numbers)
 # 3. do scores more probablisticly
 
-DEBUG = false
+DEBUG = true
 
 class Value < String
     attr_accessor :likelihood, :phrasings, :response, :next_slot, :prefixes, :suffixes
@@ -117,11 +117,10 @@ class Variable
         puts @name if DEBUG
         puts "(DEBUG) utterance: " if DEBUG
         p utterance if DEBUG
-        line = utterance.line
         extractions = Extractions.new
 
         @values.each do |value|
-            confidence = calc_confidence(line, value)
+            confidence = calc_confidence(utterance, value)
             puts "(DEBUG) value: #{value} confidence: #{confidence}" if DEBUG
             extractions << Extraction.new(value, confidence * confidence.abs, 0)
         end
@@ -153,7 +152,8 @@ class Variable
     # TODO do something smarter
     # min_conf * value.likelihood * @values.size
 
-    def calc_confidence(line, value)
+    def calc_confidence(utterance, value)
+        line = utterance.line
         phrasings = get_possible_phrasings(line, value)
         # p "phrasings", phrasings
         max_score = 0
@@ -418,17 +418,18 @@ class Slot
     # otherwise returns confidence probability
     def extract_selection(utterance)
         @extractions = @variable.extract(utterance)
+        p @extractions if DEBUG
         @selections = @variable.top_extractions(@extractions)
         if @extractions.size == 0
             @confidence = 0
         else
-            @confidence = calc_confidence(@extractions)
+            @confidence = calc_confidence(@selections)
         end
         #puts "(DEBUG) confidence: " + @confidence.to_s if DEBUG
     end
 
     def calc_confidence(extractions)
-        extractions.map(&:confidence).reduce(:+) / extractions.size
+        extractions.map(&:confidence).min
     end
 
     def apologetic(prompt)
