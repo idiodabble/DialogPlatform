@@ -3,18 +3,11 @@
 
 # Prioritized TODO list
 
-# Note: I'll probably rename selections in slot to top_extractions to make it fit with Multislot terminology
+# 1. write code to handle overlaps (same values in different variables) in MultiSlot
+# 2. write the code for preconditions (so like, you'll only see the question about seat numbers if you're flying an airline that assigns seat numbers)
+# 3. do scores more probablisticly
 
-# to finish up the routing logic of Multislot, I need to:
-# 1. write the code for handling user trying to change previous slots
-# 2. debugging
-# 3. write the code for preconditions (so like, you'll only see the question about seat numbers if you're flying an airline that assigns seat numbers)
-
-# biggest ticket items besides the routing, which Jeremy could work on if he likes:
-# 1. everything to do with probability (right now I just have arbitrary hacks, like when I want something to become more likely right now I just double the scores)
-# 2. edit distance
-
-DEBUG = true
+DEBUG = false
 
 class Value < String
     attr_accessor :likelihood, :phrasings, :response, :next_slot, :prefixes, :suffixes
@@ -130,9 +123,9 @@ class Variable
         @values.each do |value|
             confidence = calc_confidence(line, value)
             puts "(DEBUG) value: #{value} confidence: #{confidence}" if DEBUG
-            extractions << Extraction.new(value, confidence * confidence, 0)
+            extractions << Extraction.new(value, confidence * confidence.abs, 0)
         end
-        scores_to_prob(extractions)
+        #scores_to_prob(extractions)
         #puts "(DEBUG) extractions: " + extractions.to_s if DEBUG
         return extractions
     end
@@ -225,7 +218,7 @@ class Variable
                     [
                         m[i-1][j]+1,    # deletion
                         m[i][j-1]+1,    # insertion
-                        m[i-1][j-1]+1  # substitution
+                        m[i-1][j-1]+2  # substitution
                     ].min
                 end
             end
@@ -235,7 +228,6 @@ class Variable
     end
 
     def scores_to_prob(extractions)
-        #p extractions
         sum = 0
         extractions.each do |extraction|
             sum = sum + extraction.confidence
@@ -575,15 +567,10 @@ class MultiSlot
             utterance = @utterances.last
 
             extractions_hash = extract(utterance, remaining_vars)
-            p extractions_hash
-            confident_hash = extractions_hash.select{|var, extractions| extractions.confidence > @select_threshold}
+            confident_hash = extractions_hash.select{|var, extractions| extractions.confidence >= @select_threshold}
             change_hash = simpler_group(extract_change(utterance, @selections.keys))
-# TODO fix this line
-            maybe_hash = {}
-            #maybe_hash = simpler_group((extractions_hash.to_a - confident_hash.to_a).select{|var, extractions| extractions.confidence > @clarify_threshold})
+            maybe_hash = extractions_hash.select{|var, extractions| extractions.confidence < @select_threshold && extractions.confidence >= @clarify_threshold}
 
-            p "hey hey"
-            p confident_hash
             selection_reaction(confident_hash) unless confident_hash.empty?
 
             if !change_hash.empty?
@@ -610,7 +597,6 @@ class MultiSlot
             p variable.name if DEBUG
             extractions = variable.extract(utterance)
             top_extractions = variable.top_extractions(extractions)
-            p top_extractions
             extractions_hash[variable] = top_extractions
             #if top_extractions.size == 0
             #    confidence = 0
@@ -630,8 +616,6 @@ class MultiSlot
         selections_hash.each do |variable, selections|
             @selections[variable] = selections
         end
-        puts "yo yo"
-        p selections_hash
         # do individual responses
         selections_hash.each do |variable, selections|
             responses = selections.map(&:value).map(&:response).compact
@@ -649,9 +633,12 @@ class MultiSlot
                 singular_selections_hash[variable] = selections
             end
         end
-        p singular_selections_hash
         # do the grounding for the other variables
-        puts "#{Util.english_list(singular_selections_hash.values.map{|selections| selections.first})} were set for the #{Util.english_list(singular_selections_hash.keys.map(&:name))}."
+        if singular_selections_hash.size == 1
+            puts "#{Util.english_list(singular_selections_hash.values.map{|selections| selections.first.value})} was set for the #{Util.english_list(singular_selections_hash.keys.map(&:name))}."
+        else
+            puts "#{Util.english_list(singular_selections_hash.values.map{|selections| selections.first.value})} were set for the #{Util.english_list(singular_selections_hash.keys.map(&:name))}."
+        end
     end
 
     # gets all extractions that have a single value, or gets the best extraction with multiple values
@@ -716,23 +703,21 @@ class MultiSlot
 
     # logic for this is made simpler by the simpler_group method
     def change_prompt(extractions_hash)
-        if extractions_hash.size == 1
-        else
-        end
+        return "Were you trying to change #{extractions_hash.keys.first.name} to #{Util.english_list(extractions_hash.values.first.map(&:value))}?"
     end
 
     # logic for this is made simpler by the simpler_group method
     def did_you_say_prompt(extractions_hash)
         if extractions_hash.size == 1
-            return "Did you say #{Util.english_list(extractions_hash.values.first)} for the #{extractions_hash.keys.first.name}?"
+            return "Did you say #{Util.english_list(extractions_hash.values.first.map(&:value))} for the #{extractions_hash.keys.first.name}?"
         else
-            return "Did you say #{Util.english_list(extractions_hash.values.map{|x| x.first})} for the #{Util.english_list(extractions_hash.keys.map(&:name))}?"
+            return "Did you say #{Util.english_list(extractions_hash.values.map{|x| x.first.map(&:value)})} for the #{Util.english_list(extractions_hash.keys.map(&:name))}?"
         end
     end
 
 # same format as replace_reaction
     def did_you_say_reaction(extractions_hash)
-        puts apologetic(@variable.did_you_say_prompt(extractions_hash))
+        puts apologetic(did_you_say_prompt(extractions_hash))
         @utterances << get_input
         utterance = @utterances.last
         answer = extract_yes_no(utterance)
@@ -820,11 +805,11 @@ class MultiSlot
     end
 
     def apologetic(prompt)
-        if @run_cycles < 1
+        if @run_cycles < 2
             puts prompt
         else
             #puts Util.sorry_words[@repetitions % Util.sorry_words.size].capitalize + ', ' + prompt[0].downcase + prompt[1..-1]
-            puts Util.sorry_words[(@run_cycles - 1) % Util.sorry_words.size].capitalize + ', ' + prompt
+            puts Util.sorry_words[(@run_cycles - 2) % Util.sorry_words.size].capitalize + ', ' + prompt
         end
     end
 end
