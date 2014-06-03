@@ -121,15 +121,19 @@ class Variable
 
     # return array of hash of value, confidence and position
     def extract(utterance)
+        puts @name if DEBUG
+        puts "(DEBUG) utterance: " if DEBUG
+        p utterance if DEBUG
         line = utterance.line
         extractions = Extractions.new
 
         @values.each do |value|
             confidence = calc_confidence(line, value)
+            puts "(DEBUG) value: #{value} confidence: #{confidence}" if DEBUG
             extractions << Extraction.new(value, confidence * confidence, 0)
         end
         scores_to_prob(extractions)
-        puts "(DEBUG) extractions: " + extractions.to_s if DEBUG
+        #puts "(DEBUG) extractions: " + extractions.to_s if DEBUG
         return extractions
     end
 
@@ -426,7 +430,7 @@ class Slot
         else
             @confidence = calc_confidence(@extractions)
         end
-        puts "(DEBUG) confidence: " + @confidence.to_s if DEBUG
+        #puts "(DEBUG) confidence: " + @confidence.to_s if DEBUG
     end
 
     def calc_confidence(extractions)
@@ -598,8 +602,10 @@ class MultiSlot
         extractions_hash = {}
         variables.each do |variable|
             line = utterance.line
+            p variable.name if DEBUG
             extractions = variable.extract(utterance)
             top_extractions = variable.top_extractions(extractions)
+            p top_extractions
             extractions_hash[variable] = top_extractions
             #if top_extractions.size == 0
             #    confidence = 0
