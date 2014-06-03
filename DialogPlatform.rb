@@ -189,7 +189,7 @@ class Variable
     end
 
     def get_possible_phrasings(line, value)
-        p "line", line, "value", value
+        #p "line", line, "value", value
         valid_phrasings = [value]
         prefixes = @prefixes.concat value.prefixes
         suffixes = @suffixes.concat value.suffixes
@@ -575,12 +575,15 @@ class MultiSlot
             utterance = @utterances.last
 
             extractions_hash = extract(utterance, remaining_vars)
+            p extractions_hash
             confident_hash = extractions_hash.select{|var, extractions| extractions.confidence > @select_threshold}
             change_hash = simpler_group(extract_change(utterance, @selections.keys))
 # TODO fix this line
             maybe_hash = {}
             #maybe_hash = simpler_group((extractions_hash.to_a - confident_hash.to_a).select{|var, extractions| extractions.confidence > @clarify_threshold})
 
+            p "hey hey"
+            p confident_hash
             selection_reaction(confident_hash) unless confident_hash.empty?
 
             if !change_hash.empty?
@@ -627,6 +630,8 @@ class MultiSlot
         selections_hash.each do |variable, selections|
             @selections[variable] = selections
         end
+        puts "yo yo"
+        p selections_hash
         # do individual responses
         selections_hash.each do |variable, selections|
             responses = selections.map(&:value).map(&:response).compact
@@ -641,9 +646,10 @@ class MultiSlot
             if selections.size > 1
                 puts variable.grounding(selections.map(&:value), 1.5)
             else
-                singular_seletions_hash[variable] = selections
+                singular_selections_hash[variable] = selections
             end
         end
+        p singular_selections_hash
         # do the grounding for the other variables
         puts "#{Util.english_list(singular_selections_hash.values.map{|selections| selections.first})} were set for the #{Util.english_list(singular_selections_hash.keys.map(&:name))}."
     end
