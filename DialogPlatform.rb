@@ -122,13 +122,13 @@ class Variable
     # return array of hash of value, confidence and position
     def extract(utterance)
         line = utterance.line
-        extractions = Array.new
+        extractions = Extractions.new
 
         @values.each do |value|
             confidence = calc_confidence(line, value)
             extractions << Extraction.new(value, confidence * confidence, 0)
         end
-        extractions = scores_to_prob(extractions)
+        scores_to_prob(extractions)
         puts "(DEBUG) extractions: " + extractions.to_s if DEBUG
         return extractions
     end
@@ -229,21 +229,22 @@ class Variable
     end
 
     def scores_to_prob(extractions)
-        p extractions
+        #p extractions
         sum = 0
         extractions.each do |extraction|
             sum = sum + extraction.confidence
         end
+        return if sum == 0
         extractions.each do |extraction|
-            sum == 0 ? 0 : extraction.confidence = extraction.confidence / sum
+            extraction.confidence /= sum
         end
     end
 
     def top_extractions(extractions)
-        extractions.sort{|a, b|
+        Extractions.new(extractions.sort{|a, b|
             first_order = b[:confidence] <=> a[:confidence]
             first_order == 0 ? b[:position] <=> a[:position] : first_order
-        }.first @max_selection
+        }.first @max_selection)
     end
 end
 
@@ -268,6 +269,12 @@ end
 # An extraction, singular, has a single value
 # Multiple extractions, plural, can be extracted at a time if max_selections > 1
 Extraction = Struct.new(:value, :confidence, :position)
+
+class Extractions < Array
+    def confidence
+        self.map(&:confidence).min
+    end
+end
 
 # A Selection is an array of Values
 # Confidence should be a number in (0,1]
@@ -310,7 +317,7 @@ class Slot
     end
 
     def get_input
-        p @variable.values.map{|value| [value.likelihood, value]} if DEBUG
+        #p @variable.values.map{|value| [value.likelihood, value]} if DEBUG
         line = gets.chomp.downcase
         utterance = Utterance.new(line.scan(/(\S+)\s?(\([\+-]?[\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1) : Word.new(word, confidence[1...-1].to_f)})
         if utterance.find{|word| word.confidence <= 0 || word.confidence > 1}
@@ -564,13 +571,15 @@ class MultiSlot
             extractions_hash = extract(utterance, remaining_vars)
             confident_hash = extractions_hash.select{|var, extractions| extractions.confidence > @select_threshold}
             change_hash = simpler_group(extract_change(utterance, @selections.keys))
-            maybe_hash = simpler_group((extractions_hash - confident_hash).select{|var, extractions| extractions.confidence > @clarify_threshold})
+# TODO fix this line
+            maybe_hash = {}
+            #maybe_hash = simpler_group((extractions_hash.to_a - confident_hash.to_a).select{|var, extractions| extractions.confidence > @clarify_threshold})
 
             selection_reaction(confident_hash) unless confident_hash.empty?
 
-            if !change_extractions_hash.empty?
+            if !change_hash.empty?
                 change_reaction(change_hash)
-            elsif !clarify_hash.empty?
+            elsif !maybe_hash.empty?
                 did_you_say_reaction(maybe_hash)
             elsif confident_hash.empty?
                 if escape(utterance)
@@ -592,13 +601,13 @@ class MultiSlot
             extractions = variable.extract(utterance)
             top_extractions = variable.top_extractions(extractions)
             extractions_hash[variable] = top_extractions
-            if top_extractions.size == 0
-                confidence = 0
-            else
-                confidence= calc_confidence(utterance, top_extractions)
-            end
-            top_extractions.confidence = confidence
-            puts "(DEBUG) confidence: " + confidence.to_s if DEBUG
+            #if top_extractions.size == 0
+            #    confidence = 0
+            #else
+            #    confidence = calc_confidence(utterance, top_extractions)
+            #end
+            #top_extractions.confidence = confidence
+            #puts "(DEBUG) confidence: " + confidence.to_s if DEBUG
         end
         return extractions_hash
     end
@@ -663,7 +672,7 @@ class MultiSlot
 
     def calc_confidence(utterance, extractions)
         confidence = utterance.map(&:confidence).reduce(:+) / utterance.size
-        (confidence[variable] + extractions[variable].first.likelihood) / 2
+        (confidence + extractions.map(&:confidence).max) / 2
     end
 
     def change_reaction(extractions_hash)
@@ -797,11 +806,11 @@ class MultiSlot
     end
 
     def apologetic(prompt)
-        if @repetitions < 1
+        if @run_cycles < 1
             puts prompt
         else
             #puts Util.sorry_words[@repetitions % Util.sorry_words.size].capitalize + ', ' + prompt[0].downcase + prompt[1..-1]
-            puts Util.sorry_words[(@repetitions - 1) % Util.sorry_words.size].capitalize + ', ' + prompt
+            puts Util.sorry_words[(@run_cycles - 1) % Util.sorry_words.size].capitalize + ', ' + prompt
         end
     end
 end
