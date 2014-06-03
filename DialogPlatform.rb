@@ -163,7 +163,7 @@ class Variable
         phrasings.each do |phrase|
             score = 0
             phrase_len = phrase.length
-            if line_len >= phrase_len
+            if line_len > phrase_len
                 if line_len > phrase_len + 10
                     max_length = phrase_len + 10
                 else
