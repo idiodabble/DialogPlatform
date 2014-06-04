@@ -10,6 +10,9 @@
     # - Afternoon of the 21st
     # - 21st
     # It sets 2 for the day instead of 21
+
+    # also, maybe the same bug: why does it think I'm choosing 14 for my day when I type "January 7, 2014"? Shouldn't 7, an exact match, be better than 2014?
+
 # 2. Treat San (0.1) Diego (0.1) differently from San (1) Diego (1)
 # 3. Add synonyms
 # 4. Write MultiSlot version of extract, which needs to detect overlaps (same values in different variables)
@@ -18,9 +21,14 @@
 
 # 1. Implement try_again for did_you_say_reaction, then port everything over to change_reaction
 # 2. fix scoring, do them more probablisticly - especially the rejection/confirmation/increase likelihood methods
-# 3. write a Platform class, higher than Slot or MultiSlot, that will take advantage of methods like preconditions and next_slot
+# 3. test MultiSlot with variables with max_selections higher than 1
+# 4. maybe replace @name_thresholds with name_threshold() methods
+# 5. maybe rename extractions+selections again? Maybe: extractions > extraction, extractions_hash > extractions
 
-# Possible extention: be able to look up things and give the user options, i.e. "There are no flights at this time" or "We have flights available for $500, $400 and $300"
+# Bonus TODO list for if we have time:
+
+# 1. write a Platform class, higher than Slot or MultiSlot, that will take advantage of methods like preconditions and next_slot
+# 2. be able to look up things and give the user options, i.e. "There are no flights at this time" or "We have flights available for $500, $400 and $300"
 
 DEBUG = false
 
