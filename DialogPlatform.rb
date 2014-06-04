@@ -1,26 +1,28 @@
 # Designed to let users easily make new dialog systems with a platform that is heavily modifiable, so it can be customized to the individual dialog system's needs.
 # Author:: Daniel Steffee and Jeremy Hines
 
-# Prioritized TODO list
+# Jeremy TODO LIST:
 
-# 1. write code to handle overlaps (same values in different variables) in MultiSlot
-# 2. fix scoring, do them more probablisticly
-# 3. write a Platform class, higher than Slot or MultiSlot, that will take advantageo of methods like preconditions and next_slot
+# 1. Bug:
+    # In the time MultiSlot in Reservations, if you say
+    # - January 2014
+    # - No
+    # - Afternoon of the 21st
+    # - 21st
+    # It sets 2 for the day instead of 21
+# 2. Treat San (0.1) Diego (0.1) differently from San (1) Diego (1)
+# 3. Add synonyms
+# 4. Write MultiSlot version of extract, which needs to detect overlaps (same values in different variables)
+
+# Steff TODO list:
+
+# 1. Implement try_again for did_you_say_reaction, then port everything over to change_reaction
+# 2. fix scoring, do them more probablisticly - especially the rejection/confirmation/increase likelihood methods
+# 3. write a Platform class, higher than Slot or MultiSlot, that will take advantage of methods like preconditions and next_slot
 
 # Possible extention: be able to look up things and give the user options, i.e. "There are no flights at this time" or "We have flights available for $500, $400 and $300"
 
-# Not working TODO LIST:
-
-# San (0.1) Diego (0.1) is treated the same as San Diego
-
-# In the time MultiSlot in Reservations, if you say
-# - January 2014
-# - No
-# - Afternoon of the 21st
-# - 21st
-# It sets 2 for the day instead of 21
-
-DEBUG = true
+DEBUG = false
 
 class Value < String
     attr_accessor :likelihood, :phrasings, :response, :next_slot, :prefixes, :suffixes
@@ -330,7 +332,8 @@ class Slot
     def get_input
         #p @variable.values.map{|value| [value.likelihood, value]} if DEBUG
         line = gets.chomp.downcase
-        utterance = Utterance.new(line.scan(/(\S+)\s?(\([\+-]?[\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1) : Word.new(word, confidence[1...-1].to_f)})
+        
+        utterance = Utterance.new(line.scan(/([\w'-]+)[\.\?!,]?\s?(\([\+-]?[\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1) : Word.new(word, confidence[1...-1].to_f)})
         if utterance.find{|word| word.confidence <= 0 || word.confidence > 1}
             puts "Malformed input: Confidence should be in the range (0,1]. Please respond again."
             return get_input
@@ -555,7 +558,7 @@ class MultiSlot
 
     def get_input
         line = gets.chomp.downcase
-        utterance = Utterance.new(line.scan(/(\S+)\s?(\([\+-]?[\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1) : Word.new(word, confidence[1...-1].to_f)})
+        utterance = Utterance.new(line.scan(/([\w'-]+)[\.\?!,]?\s?(\([\+-]?[\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1) : Word.new(word, confidence[1...-1].to_f)})
         if utterance.find{|word| word.confidence <= 0 || word.confidence > 1}
             puts "Malformed input: Confidence should be in the range (0,1]. Please respond again."
             return get_input
@@ -690,29 +693,9 @@ class MultiSlot
         (confidence + extractions.map(&:confidence).max) / 2
     end
 
+# TODO: change to be same format as did_you_say_reaction
     def change_reaction(extractions_hash)
         puts apologetic(change_prompt(extractions_hash))
-        @utterances << get_input
-        utterance = @utterances.last
-        answer = extract_yes_no(utterance)
-        if answer.value == :no
-            rejection_likelihood(extractions_hash, answer.confidence)
-            try_again = extract_replace(utterance)
-            if try_again
-                return replace_reaction(try_again)
-            else
-                return
-            end
-        end
-        new_extractions_hash = extract(utterance, @selection.keys).select{|var, extractions| extractions.confidence > @change_threshold}
-# TODO: check if == comparison works
-        if answer.value == :yes || extractions_hash == new_extractions_hash
-            selection_reaction(extractions_hash)
-            confirmation_likelihood(extractions_hash, answer.confidence)
-            return
-        end
-        puts apologetic(dont_understand_prompt)
-        return
     end
 
     # logic for this is made simpler by the simpler_group method
@@ -729,31 +712,47 @@ class MultiSlot
         end
     end
 
-# same format as replace_reaction
+# same format as change_reaction
     def did_you_say_reaction(extractions_hash)
         puts apologetic(did_you_say_prompt(extractions_hash))
         @utterances << get_input
         utterance = @utterances.last
         answer = extract_yes_no(utterance)
+        next_extractions_hash = extract(utterance, extractions_hash.keys).select{|var, extractions| extractions.confidence > @change_threshold}
+
+        # determines what selections are they trying to correct to
+        selections_hash = nil
         if answer.value == :no
+p "yo yo"
             rejection_likelihood(extractions_hash, answer.confidence)
-            return
-# TODO: only try_again if they're setting a subset of the variables in extractions_hash.keys
-#            try_again = extract(utterance)
-#            if try_again
-#                return did_you_say_reaction(try_again)
-#            else
-#                return
-#            end
+            increase_likelihood(new_extractions_hash)
+            selections_hash = next_extractions_hash.select{|var, extractions| extractions != extractions_hash[var]}
+p selections_hash
+        else
+            if answer.value == :yes
+                confirmation_likelihood(extractions_hash, answer.confidence)
+                selections_hash = extractions_hash
+            end
+# does this comparison work?
+            if extractions_hash == next_extractions_hash
+                confirmation_likelihood(extraction_hash, next_extractions_hash.values.map(&:confidence).min)
+                selections_hash = extractions_hash
+            end
         end
-        new_extractions_hash = extract(utterance, @selection.keys).select{|var, extractions| extractions.confidence > @change_threshold}
-        if answer.value == :yes || extractions_hash == new_extractions_hash
-            selection_reaction(extractions_hash)
-            confirmation_likelihood(extractions_hash, answer.confidence)
-            return
+
+        # determines what to do with these selections
+        if selections_hash == nil
+            puts apologetic(dont_understand_prompt)
+            # TODO: slightly increase next_extractions_hash.likelihood
+        else
+            confident_hash = selections_hash.select{|var, extractions| extractions.confidence >= @select_threshold}
+            if confident_hash.size == selections_hash.size
+                selection_reaction(confident_hash)
+            else
+                # TODO: try again
+                puts 'this is temporary'
+            end
         end
-        puts apologetic(dont_understand_prompt)
-        return
     end
 
 # when overlapped, increase probability of both values in both variables (or could be more than 2), but not as big an increase (for n overlap, could divide by n)
@@ -793,17 +792,30 @@ class MultiSlot
         return Extraction.new
     end
 
+    # TODO: need to figure out which likelihoods need to change. Extractions? Extraction? Value?
+
     def rejection_likelihood(extractions_hash, confidence)
-        inverse_hash = {}
-        extractions_hash.each{|variable, extractions| inverse_hash[variable] = variable.values - extractions}
-        confirmation_likelihood(inverse_hash, confidence)
+        extractions_hash.each do |variable, extractions|
+            extractions.each do |extraction|
+                #variable.prob_mass += extraction.likelihood * confidence
+                extraction.likelihood -= confidence
+            end
+        end
+    end
+
+    def increase_likelihood(extractions_hash)
+        extractions_hash.each do |variable, extractions|
+            extractions.each do |extraction|
+                #variable.prob_mass += extraction.likelihood * confidence
+                extraction.likelihood += extraction.likelihood / 2
+            end
+        end
     end
 
     def confirmation_likelihood(extractions_hash, confidence)
-# TODO: if past threshold, set selections
         extractions_hash.each do |variable, extractions|
             extractions.each do |extraction|
-                variable.prob_mass += extraction.likelihood * confidence
+                #variable.prob_mass += extraction.likelihood * confidence
                 extraction.likelihood += extraction.likelihood * confidence
             end
         end
