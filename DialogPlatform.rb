@@ -539,6 +539,7 @@ class MultiSlot
         @change_threshold = change_threshold
         @utterances = []
         @run_count = 0
+        @apologies = 0
         @selections = {}
         @variables_needed = variables_needed
     end
@@ -838,12 +839,13 @@ p selections_hash
     end
 
     def apologetic(prompt)
-        if @run_cycles < 2
-            puts prompt
+        if @apologies < 1
+            prompt
         else
             #puts Util.sorry_words[@repetitions % Util.sorry_words.size].capitalize + ', ' + prompt[0].downcase + prompt[1..-1]
-            puts Util.sorry_words[(@run_cycles - 2) % Util.sorry_words.size].capitalize + ', ' + prompt
+            Util.sorry_words[(@run_cycles - 1) % Util.sorry_words.size].capitalize + ', ' + prompt
         end
+        @apologies += 1
     end
 end
 
