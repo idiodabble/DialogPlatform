@@ -29,7 +29,7 @@
 # 1. write a Platform class, higher than Slot or MultiSlot, that will take advantage of methods like preconditions and next_slot
 # 2. be able to look up things and give the user options, i.e. "There are no flights at this time" or "We have flights available for $500, $400 and $300"
 
-DEBUG = true
+DEBUG = false
 
 class Value < String
     attr_accessor :prior, :confidence, :phrasings, :response, :next_slot, :prefixes, :suffixes, :synonyms
@@ -44,7 +44,7 @@ class Value < String
     # +response+:: response given to user if the user selects this value
     # +next_slot+:: next Slot to go to if the user selects this value
     def initialize(name, prior, confidence = prior, prefixes = [], suffixes = [], synonyms = [], response = nil, next_slot = nil)
-        @prior = prior; @confidence = confidence, @prefixes = prefixes; @suffixes = suffixes; @synonyms = synonyms, @response = response; @next_slot = next_slot
+        @prior = prior; @confidence = confidence; @prefixes = prefixes; @suffixes = suffixes; @synonyms = synonyms; @response = response; @next_slot = next_slot
         super(name)
     end
 end
@@ -343,7 +343,7 @@ class Slot
         #p @variable.values.map{|value| [value.likelihood, value]} if DEBUG
         line = gets.chomp.downcase
         
-        utterance = Utterance.new(line.scan(/([\w'-]+)[\.\?!,]?\s?(\([\+-]?[\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1) : Word.new(word, confidence[1...-1].to_f)})
+        utterance = Utterance.new(line.scan(/([\w'-]+)[\.\?!,]?\s?(\([\+-]?[\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1.0) : Word.new(word, confidence[1...-1].to_f)})
         if utterance.find{|word| word.confidence <= 0 || word.confidence > 1}
             puts "Malformed input: Confidence should be in the range (0,1]. Please respond again."
             return get_input
@@ -568,7 +568,7 @@ class MultiSlot
 
     def get_input
         line = gets.chomp.downcase
-        utterance = Utterance.new(line.scan(/([\w'-]+)[\.\?!,]?\s?(\([\+-]?[\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1) : Word.new(word, confidence[1...-1].to_f)})
+        utterance = Utterance.new(line.scan(/([\w'-]+)[\.\?!,]?\s?(\([\+-]?[\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1.0) : Word.new(word, confidence[1...-1].to_f)})
         if utterance.find{|word| word.confidence <= 0 || word.confidence > 1}
             puts "Malformed input: Confidence should be in the range (0,1]. Please respond again."
             return get_input
@@ -730,25 +730,25 @@ class MultiSlot
         @utterances << get_input
         utterance = @utterances.last
         answer = extract_yes_no(utterance)
-        next_extractions = extract(utterance, extractions.keys).select{|var, extraction| extraction.confidence > @change_threshold}
+        next_extractions = extract(utterance, extractions.keys)#.select{|var, extraction| extraction.confidence > @change_threshold}
 
         # determines what selections are they trying to correct to
         selections = nil
-        if answer.value == :no
+        if answer == 'no'
 p "yo yo"
             rejection_likelihood(extractions, answer.confidence)
-            increase_likelihood(new_extractions)
             selections = next_extractions.select{|var, extraction| extraction != extractions[var]}
+            increase_likelihood(selections)
 p selections
         else
-            if answer.value == :yes
-                confirmation_likelihood(extractions, answer.confidence)
+            if answer == 'yes'
                 selections = extractions
+                confirmation_likelihood(selections, answer.confidence)
             end
 # does this comparison work?
             if extractions == next_extractions
-                confirmation_likelihood(extraction, next_extractions.values.map(&:confidence).min)
                 selections = extractions
+                confirmation_likelihood(selections, next_extractions.values.map(&:confidence).min)
             end
         end
 
@@ -791,19 +791,19 @@ p selections
         if utterance.size == 1
             word = utterance.first
             if Util.no_set.include? word
-                return Value.new(:no, word.confidence) 
+                return Value.new('no', word.confidence) 
             elsif Util.yes_set.include? word
-                return Value.new(:yes, word.confidence)
+                return Value.new('yes', word.confidence)
             end
         end
         no = utterance.find{|word| Util.no_set.include? word}
         yes = utterance.find{|word| Util.yes_set.include? word}
         if no && yes.nil?
-            return Value.new(:no, no.confidence / utterance.size)
+            return Value.new('no', no.confidence / utterance.size)
         elsif no.nil? && yes
-            return Value.new(:yes, yes.confidence / utterance.size)
+            return Value.new('yes', yes.confidence / utterance.size)
         end
-        return Value.new(:not_found, 0)
+        return Value.new('not found', 0)
     end
 
     # TODO: need to figure out which likelihoods need to change. Extractions? Extraction? Value?
@@ -812,6 +812,8 @@ p selections
         extractions.each do |variable, extraction|
             extraction.each do |value|
                 #variable.prob_mass += extraction.likelihood * confidence
+                p value
+                p confidence
                 value.confidence -= confidence
             end
         end
@@ -850,7 +852,7 @@ p selections
             prompt
         else
             #puts Util.sorry_words[@repetitions % Util.sorry_words.size].capitalize + ', ' + prompt[0].downcase + prompt[1..-1]
-            Util.sorry_words[(@run_cycles - 2) % Util.sorry_words.size].capitalize + ', ' + prompt
+            Util.sorry_words[(@apologies - 2) % Util.sorry_words.size].capitalize + ', ' + prompt
         end
     end
 end
