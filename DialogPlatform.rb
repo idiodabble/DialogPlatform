@@ -342,7 +342,7 @@ class Slot
     end
 
     def get_input
-        p @variable.values.map{|value| [value.likelihood, value]} if DEBUG
+        p @variable.values.map{|value| [value.confidence, value]} if DEBUG
         line = gets.chomp.downcase
         
         utterance = Utterance.new(line.scan(/([\w'-]+)[\.\?!,]?\s?(\([\+-]?[\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1.0) : Word.new(word, confidence[1...-1].to_f)})

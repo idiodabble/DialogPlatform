@@ -18,7 +18,10 @@ airline_slot = Slot.new(airline_var, ['Which airline do you want to fly?'])
 seat_var = Variable.new('seat', (0..40).to_a.map{|x| x.to_s})
 seat_slot = Slot.new(seat_var, ['Which seat would you like?'])
 
+temp_slot = Slot.new(day_var, ['What day are you flying?'])
+
 while(true)
+    temp_slot.run
     time_slot.run
     depart_slot.run
     dest_slot.run
