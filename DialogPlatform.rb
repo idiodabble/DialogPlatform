@@ -33,34 +33,39 @@
 DEBUG = false
 
 class Value < String
-    attr_accessor :likelihood, :phrasings, :response, :next_slot, :prefixes, :suffixes
+    attr_accessor :prior, :confidence, :phrasings, :response, :next_slot, :prefixes, :suffixes, :synonyms
     
-# Params:
-# +name+:: a string such as 'San Diego'
-# +likelihood+:: likelihood of this value being selected relative to other values; does not need to be a probability
-# +phrasings+:: array of regular expressions representing phrases that would indicate that the user is selecting this value
-# +response+:: response given to user if the user selects this value
-# +next_slot+:: next Slot to go to if the user selects this value
-    def initialize(name, likelihood, prefixes = [], suffixes = [], response = nil, next_slot = nil)
-        @likelihood = likelihood; @prefixes = prefixes; @suffixes = suffixes; @response = response; @next_slot = next_slot
+    # Params:
+    # +name+:: a string such as 'San Francisco'
+    # +prior+:: prior probability of this value being selected, e.g. "San Francisco" having 0.3 and "San Diego" having 0.2 because SFO is more popular; must be a number in (0,1)
+    # +confidence+:: confidence that this value is being selected by the user; must be a number but does not have to be a probability
+    # +prefixes+:: words that we might expect to see before the value, e.g. "from" or "to"
+    # +suffixes+:: words that we might expect to see after the value, e.g. "airport"
+    # +synonyms+:: words that we might expect in place of the value, e.g. "San Fran"
+    # +response+:: response given to user if the user selects this value
+    # +next_slot+:: next Slot to go to if the user selects this value
+    def initialize(name, prior, confidence = prior, prefixes = [], suffixes = [], response = nil, next_slot = nil)
+        @prior = prior; @prefixes = prefixes; @suffixes = suffixes; @response = response; @next_slot = next_slot
         super(name)
     end
 end
 
 #
 class Variable
-    attr_accessor :name, :values, :prob_mass, :max_selection, :selection, :prefixes, :suffixes
+    attr_accessor :name, :values, :max_selection_size, :selection, :prefixes, :suffixes
 
     # Params:
     # +name+:: name of the variable, such as 'departure city'
     # +values+:: can be an array of Values, see above
     #         or it can be an array of strings such as ['San Diego', 'San Fransisco', 'Sacramento']
     #         using defaults to fill in the other fields for Values
-    # +prob_mass+:: because likelihoods don't have to be probabilities, the total probability mass may not be 1
-    # +max_selection+:: the number of values a user can set at one time
+    # +prob_mass+:: because confidences don't have to be probabilities, the total probability mass may not be 1
+    # +max_selection_size+:: the number of values a user can set at one time
     #    example: when set to 2, 'San Diego' or 'San Diego and San Francisco' are valid responses,
     #    but 'San Diego, San Francisco, and Los Angeles' is not
-    def initialize(name, values, max_selection = 1, prefixes = [], suffixes = [])
+    # +prefixes+:: words that we might expect to see before a value, e.g. "from" or "to"
+    # +suffixes+:: words that we might expect to see after a value, e.g. "airport"
+    def initialize(name, values, max_selection_size = 1, prefixes = [], suffixes = [])
         @name = name
         @values = values.map {|value|
             if value.is_a?(String)
@@ -71,8 +76,8 @@ class Variable
                 raise 'Expecting a String or Value'
             end
         }
-        @prob_mass = @values.map(&:likelihood).reduce(:+)
-        @max_selection = max_selection
+        @prob_mass = @values.map(&:confidence).reduce(:+)
+        @max_selection_size = max_selection_size
         @prefixes = prefixes
         @suffixes = suffixes
     end
@@ -111,8 +116,8 @@ class Variable
         nil
     end
 
-    def did_you_say_prompt(extractions)
-        "I didn't hear you, did you say #{Util.english_list(extractions.map(&:value))}?"
+    def did_you_say_prompt(extraction)
+        "I didn't hear you, did you say #{Util.english_list(extraction.map(&:value))}?"
     end
 
     def prefixes=(arr)
@@ -140,16 +145,17 @@ class Variable
         puts @name if DEBUG
         puts "(DEBUG) utterance: " if DEBUG
         p utterance if DEBUG
-        extractions = Extractions.new
+        extraction = Extraction.new
 
         @values.each do |value|
             confidence = calc_confidence(utterance, value)
             puts "(DEBUG) value: #{value} confidence: #{confidence}" if DEBUG
-            extractions << Extraction.new(value, confidence * confidence.abs, 0)
+            value.confidence = confidence * confidence.abs
+            extraction << value
         end
         #scores_to_prob(extractions)
         #puts "(DEBUG) extractions: " + extractions.to_s if DEBUG
-        return extractions
+        return extraction
     end
 
     # extractions = @values.map { |value|
@@ -250,22 +256,22 @@ class Variable
         1 - (m[l_len][p_len].to_f/len)
     end
 
-    def scores_to_prob(extractions)
+    def scores_to_prob(extraction)
         sum = 0
-        extractions.each do |extraction|
-            sum = sum + extraction.confidence
+        extraction.each do |value|
+            sum = sum + value.confidence
         end
         return if sum == 0
-        extractions.each do |extraction|
-            extraction.confidence /= sum
+        extraction.each do |value|
+            value.confidence /= sum
         end
     end
 
-    def top_extractions(extractions)
-        Extractions.new(extractions.sort{|a, b|
+    def top_extraction(extraction)
+        Extraction.new(extraction.sort{|a, b|
             first_order = b[:confidence] <=> a[:confidence]
             first_order == 0 ? b[:position] <=> a[:position] : first_order
-        }.first @max_selection)
+        }.first @max_selection_size)
     end
 end
 
@@ -287,11 +293,8 @@ class Utterance < Array
     end
 end
 
-# An extraction, singular, has a single value
-# Multiple extractions, plural, can be extracted at a time if max_selections > 1
-Extraction = Struct.new(:value, :confidence, :position)
-
-class Extractions < Array
+# An Extraction is an Array of Value
+class Extraction < Array
     def confidence
         self.map(&:confidence).min
     end
@@ -361,7 +364,7 @@ class Slot
             else
                 # returns nil so coder deccides whether to use run_clarification or do something else,
                 # because maybe the user is trying to jump
-                if escape(@utterances.last, @selections)
+                if escape(@utterances.last, @selection)
                     return nil
                 else
                     clarification_reaction
@@ -370,24 +373,24 @@ class Slot
             @repetitions += 1
         end
         selection_reaction
-        return @selections
+        return @selection
     end
 
     # style question: keep parameters or keep class fields?
     def did_you_say_reaction
-        puts apologetic(@variable.did_you_say_prompt(@selections))
+        puts apologetic(@variable.did_you_say_prompt(@selection))
         @utterances << get_input
         line = @utterances.last.line
         if Util.no_set.include? line
-            rejection_likelihood(@selections) if @selections.size == 1
+            rejection_likelihood(@selection) if @selection.size == 1
             puts "Oh, what did you mean?"
             @utterances << get_input
         elsif Util.no_set.find{|no_word| line[no_word] != nil} != nil
-            rejection_likelihood(@selections) if @selections.size == 1
+            rejection_likelihood(@selection) if @selection.size == 1
         elsif Util.yes_set.find{|no_word| line[no_word] != nil} != nil
             return true
         else
-            repetition_likelihood(@extractions)
+            repetition_likelihood(@extraction)
         end
         return false
     end
@@ -400,7 +403,7 @@ class Slot
     # style question: what to name the parameter?
     def repetition_likelihood(extractions)
         extractions.each{|extraction|
-            @variable.prob_mass += extraction.value.likelihood
+            @variable.prob_mass += extraction.value.confidence
             # TODO: make this not dumb
             extraction.value.likelihood += extraction.confidence
         }
@@ -418,12 +421,12 @@ class Slot
 
     def clarification_reaction
         clarification_prompt
-        repetition_likelihood(@extractions)
+        repetition_likelihood(@extraction)
         @utterances << get_input
     end
 
     def selection_reaction
-        selected_vals = @selections.map(&:value)
+        selected_vals = @selection.map(&:value)
         responses = selected_vals.map(&:response).compact
         # value specific responses
         responses.each{|response| puts response}
@@ -441,13 +444,13 @@ class Slot
     # returns 0 if it couldn't find anything at all,
     # otherwise returns confidence probability
     def extract_selection(utterance)
-        @extractions = @variable.extract(utterance)
-        p @extractions if DEBUG
-        @selections = @variable.top_extractions(@extractions)
-        if @extractions.size == 0
+        @extraction = @variable.extract(utterance)
+        p @extraction if DEBUG
+        @selection = @variable.top_extractions(@extraction)
+        if @extraction.size == 0
             @confidence = 0
         else
-            @confidence = calc_confidence(@selections)
+            @confidence = calc_confidence(@selection)
         end
         #puts "(DEBUG) confidence: " + @confidence.to_s if DEBUG
     end
@@ -592,10 +595,10 @@ class MultiSlot
             @utterances << get_input
             utterance = @utterances.last
 
-            extractions_hash = extract(utterance, remaining_vars)
-            confident_hash = extractions_hash.select{|var, extractions| extractions.confidence >= @select_threshold}
+            extractions = extract(utterance, remaining_vars)
+            confident_hash = extractions.select{|var, extractions| extractions.confidence >= @select_threshold}
             change_hash = simpler_group(extract_change(utterance, @selections.keys))
-            maybe_hash = extractions_hash.select{|var, extractions| extractions.confidence < @select_threshold && extractions.confidence >= @clarify_threshold}
+            maybe_hash = extractions.select{|var, extractions| extractions.confidence < @select_threshold && extractions.confidence >= @clarify_threshold}
 
             selection_reaction(confident_hash) unless confident_hash.empty?
 
@@ -617,13 +620,13 @@ class MultiSlot
 
 # TODO: need to get rid of phrasing overlaps
     def extract(utterance, variables)
-        extractions_hash = {}
+        extractions= {}
         variables.each do |variable|
             line = utterance.line
             p variable.name if DEBUG
-            extractions = variable.extract(utterance)
-            top_extractions = variable.top_extractions(extractions)
-            extractions_hash[variable] = top_extractions
+            extraction = variable.extract(utterance)
+            top_extraction = variable.top_extraction(extraction)
+            extractions[variable] = top_extraction
             #if top_extractions.size == 0
             #    confidence = 0
             #else
@@ -632,38 +635,38 @@ class MultiSlot
             #top_extractions.confidence = confidence
             #puts "(DEBUG) confidence: " + confidence.to_s if DEBUG
         end
-        return extractions_hash
+        return extractions
     end
 
 # sets @selections and grounds them,
 # will be called by change_reaction and did_you_say_reaction
-    def selection_reaction(selections_hash)
+    def selection_reaction(selections)
         # set the selections
-        selections_hash.each do |variable, selections|
-            @selections[variable] = selections
+        selections.each do |variable, selection|
+            @selections[variable] = selection
         end
         # do individual responses
-        selections_hash.each do |variable, selections|
-            responses = selections.map(&:value).map(&:response).compact
+        selections.each do |variable, selection|
+            responses = selection.map(&:value).map(&:response).compact
             # value specific responses
             responses.each{|response| puts response}
             # general variable response 
             puts variable.response unless variable.response.nil?
         end
         # do the grounding for variables with more than one value
-        singular_selections_hash = {}
-        selections_hash.each do |variable, selections|
-            if selections.size > 1
-                puts variable.grounding(selections.map(&:value), 1.5)
+        singular_selections = {}
+        selections.each do |variable, selection|
+            if selection.size > 1
+                puts variable.grounding(selection.map(&:value), 1.5)
             else
-                singular_selections_hash[variable] = selections
+                singular_selections[variable] = selection
             end
         end
         # do the grounding for the other variables
-        if singular_selections_hash.size == 1
-            puts "#{Util.english_list(singular_selections_hash.values.map{|selections| selections.first.value})} was set for the #{Util.english_list(singular_selections_hash.keys.map(&:name))}."
+        if singular_selections.size == 1
+            puts "#{Util.english_list(singular_selections.values.map{|selection| selection.first.value})} was set for the #{Util.english_list(singular_selections.keys.map(&:name))}."
         else
-            puts "#{Util.english_list(singular_selections_hash.values.map{|selections| selections.first.value})} were set for the #{Util.english_list(singular_selections_hash.keys.map(&:name))}."
+            puts "#{Util.english_list(singular_selections.values.map{|selection| selection.first.value})} were set for the #{Util.english_list(singular_selections.keys.map(&:name))}."
         end
     end
 
@@ -703,59 +706,59 @@ class MultiSlot
     end
 
 # TODO: change to be same format as did_you_say_reaction
-    def change_reaction(extractions_hash)
-        puts apologetic(change_prompt(extractions_hash))
+    def change_reaction(extractions)
+        puts apologetic(change_prompt(extractions))
     end
 
     # logic for this is made simpler by the simpler_group method
-    def change_prompt(extractions_hash)
-        return "Were you trying to change #{extractions_hash.keys.first.name} to #{Util.english_list(extractions_hash.values.first.map(&:value))}?"
+    def change_prompt(extractions)
+        return "Were you trying to change #{extractions.keys.first.name} to #{Util.english_list(extractions.values.first.map(&:value))}?"
     end
 
     # logic for this is made simpler by the simpler_group method
-    def did_you_say_prompt(extractions_hash)
-        if extractions_hash.size == 1
-            return "Did you say #{Util.english_list(extractions_hash.values.first.map(&:value))} for the #{extractions_hash.keys.first.name}?"
+    def did_you_say_prompt(extractions)
+        if extractions.size == 1
+            return "Did you say #{Util.english_list(extractions.values.first.map(&:value))} for the #{extractions.keys.first.name}?"
         else
-            return "Did you say #{Util.english_list(extractions_hash.values.map{|x| x.first.map(&:value)})} for the #{Util.english_list(extractions_hash.keys.map(&:name))}?"
+            return "Did you say #{Util.english_list(extractions.values.map{|x| x.first.map(&:value)})} for the #{Util.english_list(extractions.keys.map(&:name))}?"
         end
     end
 
 # same format as change_reaction
-    def did_you_say_reaction(extractions_hash)
-        puts apologetic(did_you_say_prompt(extractions_hash))
+    def did_you_say_reaction(extractions)
+        puts apologetic(did_you_say_prompt(extractions))
         @utterances << get_input
         utterance = @utterances.last
         answer = extract_yes_no(utterance)
-        next_extractions_hash = extract(utterance, extractions_hash.keys).select{|var, extractions| extractions.confidence > @change_threshold}
+        next_extractions = extract(utterance, extractions.keys).select{|var, extraction| extraction.confidence > @change_threshold}
 
         # determines what selections are they trying to correct to
-        selections_hash = nil
+        selections = nil
         if answer.value == :no
 p "yo yo"
-            rejection_likelihood(extractions_hash, answer.confidence)
-            increase_likelihood(new_extractions_hash)
-            selections_hash = next_extractions_hash.select{|var, extractions| extractions != extractions_hash[var]}
-p selections_hash
+            rejection_likelihood(extractions, answer.confidence)
+            increase_likelihood(new_extractions)
+            selections = next_extractions.select{|var, extraction| extraction != extractions[var]}
+p selections
         else
             if answer.value == :yes
-                confirmation_likelihood(extractions_hash, answer.confidence)
-                selections_hash = extractions_hash
+                confirmation_likelihood(extractions, answer.confidence)
+                selections = extractions
             end
 # does this comparison work?
-            if extractions_hash == next_extractions_hash
-                confirmation_likelihood(extraction_hash, next_extractions_hash.values.map(&:confidence).min)
-                selections_hash = extractions_hash
+            if extractions == next_extractions
+                confirmation_likelihood(extraction, next_extractions.values.map(&:confidence).min)
+                selections = extractions
             end
         end
 
         # determines what to do with these selections
-        if selections_hash == nil
+        if selections == nil
             puts apologetic(dont_understand_prompt)
             # TODO: slightly increase next_extractions_hash.likelihood
         else
-            confident_hash = selections_hash.select{|var, extractions| extractions.confidence >= @select_threshold}
-            if confident_hash.size == selections_hash.size
+            confident_hash = selections.select{|var, extraction| extraction.confidence >= @select_threshold}
+            if confident_hash.size == selections.size
                 selection_reaction(confident_hash)
             else
                 # TODO: try again
@@ -786,46 +789,46 @@ p selections_hash
         if utterance.size == 1
             word = utterance.first
             if Util.no_set.include? word
-                return Extraction.new(:no, word.confidence) 
+                return Value.new(:no, word.confidence) 
             elsif Util.yes_set.include? word
-                return Extraction.new(:yes, word.confidence)
+                return Value.new(:yes, word.confidence)
             end
         end
         no = utterance.find{|word| Util.no_set.include? word}
         yes = utterance.find{|word| Util.yes_set.include? word}
         if no && yes.nil?
-            return Extraction.new(:no, no.confidence / utterance.size)
+            return Value.new(:no, no.confidence / utterance.size)
         elsif no.nil? && yes
-            return Extraction.new(:yes, yes.confidence / utterance.size)
+            return Value.new(:yes, yes.confidence / utterance.size)
         end
-        return Extraction.new
+        return Value.new(:not_found, 0)
     end
 
     # TODO: need to figure out which likelihoods need to change. Extractions? Extraction? Value?
 
-    def rejection_likelihood(extractions_hash, confidence)
-        extractions_hash.each do |variable, extractions|
-            extractions.each do |extraction|
+    def rejection_likelihood(extractions, confidence)
+        extractions.each do |variable, extraction|
+            extraction.each do |value|
                 #variable.prob_mass += extraction.likelihood * confidence
-                extraction.likelihood -= confidence
+                value.confidence -= confidence
             end
         end
     end
 
-    def increase_likelihood(extractions_hash)
-        extractions_hash.each do |variable, extractions|
-            extractions.each do |extraction|
+    def increase_likelihood(extractions)
+        extractions.each do |variable, extraction|
+            extraction.each do |value|
                 #variable.prob_mass += extraction.likelihood * confidence
-                extraction.likelihood += extraction.likelihood / 2
+                value.confidence += value.confidence / 2
             end
         end
     end
 
-    def confirmation_likelihood(extractions_hash, confidence)
-        extractions_hash.each do |variable, extractions|
-            extractions.each do |extraction|
+    def confirmation_likelihood(extractions, confidence)
+        extractions.each do |variable, extraction|
+            extraction.each do |value|
                 #variable.prob_mass += extraction.likelihood * confidence
-                extraction.likelihood += extraction.likelihood * confidence
+                value.confidence += value.confidence * confidence
             end
         end
     end
