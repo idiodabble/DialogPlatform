@@ -19,10 +19,11 @@
 
 # Steff TODO list:
 
-# 1. Implement try_again for did_you_say_reaction, then port everything over to change_reaction
-# 2. fix scoring, do them more probablisticly - especially the rejection/confirmation/increase likelihood methods
-# 3. test MultiSlot with variables with max_selections higher than 1
-# 4. maybe replace @name_thresholds with name_threshold() methods
+# 1. Finish testing did_you_say_reaction, then port everything over to change_reaction
+# 2. Write omments / ruby documentation
+# 3. Change the rejection/confirmation/increase likelihood methods?
+# 4. test MultiSlot with variables with max_selections higher than 1
+# 5. maybe replace @name_thresholds with name_threshold() methods?
 
 # Bonus TODO list for if we have time:
 
