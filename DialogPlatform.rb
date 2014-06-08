@@ -372,7 +372,7 @@ class Slot
                 if escape(@utterances.last, @selection)
                     return nil
                 else
-                    clarification_reaction
+                    extracted_nothing_reaction 
                 end
             end
             @repetitions += 1
@@ -420,12 +420,12 @@ class Slot
         false
     end
 
-    def clarification_prompt
+    def extracted_nothing_prompt
         puts apologetic("I'm not sure what you said, could you repeat your response?")
     end
 
-    def clarification_reaction
-        clarification_prompt
+    def extracted_nothing_reaction
+        extracted_nothing_prompt
         repetition_likelihood(@extraction)
         @utterances << get_input
     end
@@ -569,7 +569,11 @@ class MultiSlot
     end
 
     def prompt
-        puts @prompts[@run_count % @prompts.size]
+        if @prompts.is_a? Array
+            puts @prompts[@run_count % @prompts.size]
+        else
+            puts @prompts
+        end
     end
 
     def get_input
