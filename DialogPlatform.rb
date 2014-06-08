@@ -29,7 +29,7 @@
 # 1. write a Platform class, higher than Slot or MultiSlot, that will take advantage of methods like preconditions and next_slot
 # 2. be able to look up things and give the user options, i.e. "There are no flights at this time" or "We have flights available for $500, $400 and $300"
 
-DEBUG = false
+DEBUG = true
 
 class Value < String
     attr_accessor :prior, :confidence, :phrasings, :response, :next_slot, :prefixes, :suffixes, :synonyms
@@ -148,8 +148,9 @@ class Variable
 
         @values.each do |value|
             confidence = calc_confidence(utterance, value)
-            puts "(DEBUG) value: #{value} confidence: #{confidence}" if DEBUG
-            value.confidence = confidence * confidence.abs
+            #value.confidence = confidence * confidence.abs
+            value.confidence = (value.confidence + 2 * confidence) / 3 unless confidence == 0
+            puts "(DEBUG) value: #{value} confidence: #{confidence} new value confidence: #{value.confidence}" if DEBUG
             extraction << value
         end
         #scores_to_prob(extractions)
@@ -340,7 +341,7 @@ class Slot
     end
 
     def get_input
-        #p @variable.values.map{|value| [value.likelihood, value]} if DEBUG
+        p @variable.values.map{|value| [value.likelihood, value]} if DEBUG
         line = gets.chomp.downcase
         
         utterance = Utterance.new(line.scan(/([\w'-]+)[\.\?!,]?\s?(\([\+-]?[\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1.0) : Word.new(word, confidence[1...-1].to_f)})
@@ -567,6 +568,7 @@ class MultiSlot
     end
 
     def get_input
+        #p @variables.map{|var| var.values.map{|val| p [val, val.confidence]}} if DEBUG
         line = gets.chomp.downcase
         utterance = Utterance.new(line.scan(/([\w'-]+)[\.\?!,]?\s?(\([\+-]?[\d.]+\))?/).map{|word, confidence| confidence.nil? ? Word.new(word, 1.0) : Word.new(word, confidence[1...-1].to_f)})
         if utterance.find{|word| word.confidence <= 0 || word.confidence > 1}
@@ -735,11 +737,13 @@ class MultiSlot
         # determines what selections are they trying to correct to
         selections = nil
         if answer == 'no'
-p "yo yo"
             rejection_likelihood(extractions, answer.confidence)
+            #puts "YO YO YO YO YO"
+            #p extractions
+            #p next_extractions
             selections = next_extractions.select{|var, extraction| extraction != extractions[var]}
+            #p selections
             increase_likelihood(selections)
-p selections
         else
             if answer == 'yes'
                 selections = extractions
@@ -752,16 +756,22 @@ p selections
             end
         end
 
+        p selections if DEBUG
+
         # determines what to do with these selections
         if selections == nil
             puts apologetic(dont_understand_prompt)
             # TODO: slightly increase next_extractions_hash.likelihood
         else
-            confident_hash = selections.select{|var, extraction| extraction.confidence >= @select_threshold}
+            confident_hash = selections.select{|var, extraction| p extraction.confidence if DEBUG; extraction.confidence >= @select_threshold}
+            maybe_hash = selections.select{|var, extraction| p extraction.confidence if DEBUG; extraction.confidence >= @clarify_threshold}
+            p confident_hash if DEBUG
             if confident_hash.size == selections.size
                 selection_reaction(confident_hash)
-            elsif confident_hash.size != 0
+            elsif confident_hash.size > 0
                 did_you_say_reaction(confident_hash)
+            elsif maybe_hash.size > 0
+                did_you_say_reaction(maybe_hash)
             else
                 puts apologetic(dont_understand_prompt)
                 # TODO: slightly increase next_extractions_hash.likelihood
@@ -832,6 +842,7 @@ p selections
         extractions.each do |variable, extraction|
             extraction.each do |value|
                 #variable.prob_mass += extraction.likelihood * confidence
+                p value.confidence
                 value.confidence += value.confidence * confidence
             end
         end
