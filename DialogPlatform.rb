@@ -23,14 +23,13 @@
 # 2. fix scoring, do them more probablisticly - especially the rejection/confirmation/increase likelihood methods
 # 3. test MultiSlot with variables with max_selections higher than 1
 # 4. maybe replace @name_thresholds with name_threshold() methods
-# 5. maybe rename extractions+selections again? Maybe: extractions > extraction, extractions_hash > extractions
 
 # Bonus TODO list for if we have time:
 
 # 1. write a Platform class, higher than Slot or MultiSlot, that will take advantage of methods like preconditions and next_slot
 # 2. be able to look up things and give the user options, i.e. "There are no flights at this time" or "We have flights available for $500, $400 and $300"
 
-DEBUG = false
+DEBUG = true
 
 class Value < String
     attr_accessor :prior, :confidence, :phrasings, :response, :next_slot, :prefixes, :suffixes, :synonyms
@@ -44,8 +43,8 @@ class Value < String
     # +synonyms+:: words that we might expect in place of the value, e.g. "San Fran"
     # +response+:: response given to user if the user selects this value
     # +next_slot+:: next Slot to go to if the user selects this value
-    def initialize(name, prior, confidence = prior, prefixes = [], suffixes = [], response = nil, next_slot = nil)
-        @prior = prior; @prefixes = prefixes; @suffixes = suffixes; @response = response; @next_slot = next_slot
+    def initialize(name, prior, confidence = prior, prefixes = [], suffixes = [], synonyms = [], response = nil, next_slot = nil)
+        @prior = prior; @confidence = confidence, @prefixes = prefixes; @suffixes = suffixes; @synonyms = synonyms, @response = response; @next_slot = next_slot
         super(name)
     end
 end
@@ -117,7 +116,7 @@ class Variable
     end
 
     def did_you_say_prompt(extraction)
-        "I didn't hear you, did you say #{Util.english_list(extraction.map(&:value))}?"
+        "I didn't hear you, did you say #{Util.english_list(extraction)}?"
     end
 
     def prefixes=(arr)
@@ -269,8 +268,8 @@ class Variable
 
     def top_extraction(extraction)
         Extraction.new(extraction.sort{|a, b|
-            first_order = b[:confidence] <=> a[:confidence]
-            first_order == 0 ? b[:position] <=> a[:position] : first_order
+            first_order = b.confidence <=> a.confidence
+            #first_order == 0 ? b[:position] <=> a[:position] : first_order
         }.first @max_selection_size)
     end
 end
@@ -403,9 +402,9 @@ class Slot
     # style question: what to name the parameter?
     def repetition_likelihood(extractions)
         extractions.each{|extraction|
-            @variable.prob_mass += extraction.value.confidence
+            @variable.prob_mass += extraction.confidence
             # TODO: make this not dumb
-            extraction.value.likelihood += extraction.confidence
+            extraction.confidence += extraction.confidence
         }
     end
 
@@ -426,17 +425,16 @@ class Slot
     end
 
     def selection_reaction
-        selected_vals = @selection.map(&:value)
-        responses = selected_vals.map(&:response).compact
+        responses = @selection.map(&:response).compact
         # value specific responses
         responses.each{|response| puts response}
         # general variable response 
         puts @variable.response unless @variable.response.nil?
         # more succinct in following runs
         if @run_count > 1
-            puts @variable.grounding(selected_vals, 2)
+            puts @variable.grounding(@selection, 2)
         else
-            puts @variable.grounding(selected_vals, 1)
+            puts @variable.grounding(@selection, 1)
         end
     end
 
@@ -446,7 +444,7 @@ class Slot
     def extract_selection(utterance)
         @extraction = @variable.extract(utterance)
         p @extraction if DEBUG
-        @selection = @variable.top_extractions(@extraction)
+        @selection = @variable.top_extraction(@extraction)
         if @extraction.size == 0
             @confidence = 0
         else
@@ -623,7 +621,6 @@ class MultiSlot
         extractions= {}
         variables.each do |variable|
             line = utterance.line
-            p variable.name if DEBUG
             extraction = variable.extract(utterance)
             top_extraction = variable.top_extraction(extraction)
             extractions[variable] = top_extraction
@@ -647,7 +644,7 @@ class MultiSlot
         end
         # do individual responses
         selections.each do |variable, selection|
-            responses = selection.map(&:value).map(&:response).compact
+            responses = selection.map(&:response).compact
             # value specific responses
             responses.each{|response| puts response}
             # general variable response 
@@ -657,16 +654,16 @@ class MultiSlot
         singular_selections = {}
         selections.each do |variable, selection|
             if selection.size > 1
-                puts variable.grounding(selection.map(&:value), 1.5)
+                puts variable.grounding(selection, 1.5)
             else
                 singular_selections[variable] = selection
             end
         end
         # do the grounding for the other variables
         if singular_selections.size == 1
-            puts "#{Util.english_list(singular_selections.values.map{|selection| selection.first.value})} was set for the #{Util.english_list(singular_selections.keys.map(&:name))}."
+            puts "#{Util.english_list(singular_selections.values.map{|selection| selection.first})} was set for the #{Util.english_list(singular_selections.keys.map(&:name))}."
         else
-            puts "#{Util.english_list(singular_selections.values.map{|selection| selection.first.value})} were set for the #{Util.english_list(singular_selections.keys.map(&:name))}."
+            puts "#{Util.english_list(singular_selections.values.map{|selection| selection.first})} were set for the #{Util.english_list(singular_selections.keys.map(&:name))}."
         end
     end
 
@@ -687,6 +684,7 @@ class MultiSlot
     end
 
     def extracted_nothing_reaction
+        puts "extracted nothing reaction" if DEBUG
         @reprompt = false unless @last_extracted_nothing == @run_count - 1
         @last_extracted_nothing = @run_count
         puts extracted_nothing_prompt
@@ -707,25 +705,27 @@ class MultiSlot
 
 # TODO: change to be same format as did_you_say_reaction
     def change_reaction(extractions)
+        puts "change reaction" if DEBUG
         puts apologetic(change_prompt(extractions))
     end
 
     # logic for this is made simpler by the simpler_group method
     def change_prompt(extractions)
-        return "Were you trying to change #{extractions.keys.first.name} to #{Util.english_list(extractions.values.first.map(&:value))}?"
+        return "Were you trying to change #{extractions.keys.first.name} to #{Util.english_list(extractions.values.first)}?"
     end
 
     # logic for this is made simpler by the simpler_group method
     def did_you_say_prompt(extractions)
         if extractions.size == 1
-            return "Did you say #{Util.english_list(extractions.values.first.map(&:value))} for the #{extractions.keys.first.name}?"
+            "Did you say #{Util.english_list(extractions.values.first)} for the #{extractions.keys.first.name}?"
         else
-            return "Did you say #{Util.english_list(extractions.values.map{|x| x.first.map(&:value)})} for the #{Util.english_list(extractions.keys.map(&:name))}?"
+            "Did you say #{Util.english_list(extractions.values.map{|x| x.first})} for the #{Util.english_list(extractions.keys.map(&:name))}?"
         end
     end
 
 # same format as change_reaction
     def did_you_say_reaction(extractions)
+        puts "did you say reaction" if DEBUG
         puts apologetic(did_you_say_prompt(extractions))
         @utterances << get_input
         utterance = @utterances.last
@@ -760,9 +760,11 @@ p selections
             confident_hash = selections.select{|var, extraction| extraction.confidence >= @select_threshold}
             if confident_hash.size == selections.size
                 selection_reaction(confident_hash)
+            elsif confident_hash.size != 0
+                did_you_say_reaction(confident_hash)
             else
-                # TODO: try again
-                puts 'this is temporary'
+                puts apologetic(dont_understand_prompt)
+                # TODO: slightly increase next_extractions_hash.likelihood
             end
         end
     end
@@ -834,6 +836,7 @@ p selections
     end
 
     def escape(utterance)
+        puts "escape" if DEBUG
         false
     end
 
@@ -842,13 +845,13 @@ p selections
     end
 
     def apologetic(prompt)
-        if @apologies < 1
+        @apologies += 1
+        if @apologies < 2
             prompt
         else
             #puts Util.sorry_words[@repetitions % Util.sorry_words.size].capitalize + ', ' + prompt[0].downcase + prompt[1..-1]
-            Util.sorry_words[(@run_cycles - 1) % Util.sorry_words.size].capitalize + ', ' + prompt
+            Util.sorry_words[(@run_cycles - 2) % Util.sorry_words.size].capitalize + ', ' + prompt
         end
-        @apologies += 1
     end
 end
 

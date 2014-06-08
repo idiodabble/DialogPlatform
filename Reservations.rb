@@ -19,9 +19,9 @@ seat_var = Variable.new('seat', (0..40).to_a.map{|x| x.to_s})
 seat_slot = Slot.new(seat_var, ['Which seat would you like?'])
 
 while(true)
+    time_slot.run
     depart_slot.run
     dest_slot.run
-    time_slot.run
     airline = airline_slot.run
     if airline != 'Southwest'
         seat_slot.run
