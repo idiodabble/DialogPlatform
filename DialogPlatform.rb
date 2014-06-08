@@ -338,7 +338,11 @@ class Slot
     end
 
     def prompt
-        puts @prompts[@run_count % @prompts.size]
+        if @prompts.is_a? Array
+            puts @prompts[@run_count % @prompts.size]
+        else
+            puts @prompts
+        end
     end
 
     def get_input
