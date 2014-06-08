@@ -76,10 +76,13 @@ class Variable
                 raise 'Expecting a String or Value'
             end
         }
-        @prob_mass = @values.map(&:confidence).reduce(:+)
         @max_selection_size = max_selection_size
         @prefixes = prefixes
         @suffixes = suffixes
+    end
+
+    def prob_mass
+        @values.map(&:confidence).reduce(:+)
     end
 
     def response
@@ -360,10 +363,12 @@ class Slot
     def run_cycle
         @utterances << get_input
         while(true)
-            extract_selection(@utterances.last)
-            if @confidence >= @extract_threshold
+            extract(@utterances.last)
+            print "Selection confidence: " if DEBUG
+            p @selection.confidence if DEBUG
+            if @selection.confidence >= @extract_threshold
                 break
-            elsif @confidence >= @clarify_threshold
+            elsif @selection.confidence >= @clarify_threshold
 #TODO: need to increase likelihood of all extractions, not just top
                 break if did_you_say_reaction
             else
@@ -408,7 +413,6 @@ class Slot
     # style question: what to name the parameter?
     def repetition_likelihood(extractions)
         extractions.each{|extraction|
-            @variable.prob_mass += extraction.confidence
             # TODO: make this not dumb
             extraction.confidence += extraction.confidence
         }
@@ -447,20 +451,16 @@ class Slot
     # sets @extractions, @selections and @confidence
     # returns 0 if it couldn't find anything at all,
     # otherwise returns confidence probability
-    def extract_selection(utterance)
+    def extract(utterance)
         @extraction = @variable.extract(utterance)
         p @extraction if DEBUG
         @selection = @variable.top_extraction(@extraction)
-        if @extraction.size == 0
-            @confidence = 0
-        else
-            @confidence = calc_confidence(@selection)
-        end
+    #    if @extraction.size == 0
+    #        @confidence = 0
+    #    else
+    #        @confidence = calc_confidence(@selection)
+    #    end
         #puts "(DEBUG) confidence: " + @confidence.to_s if DEBUG
-    end
-
-    def calc_confidence(extractions)
-        extractions.map(&:confidence).min
     end
 
     def apologetic(prompt)

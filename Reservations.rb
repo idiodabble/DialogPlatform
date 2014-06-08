@@ -1,7 +1,7 @@
 require './DialogPlatform'
 
 depart_var = Variable.new('departure', ['San Diego', 'San Francisco', 'Los Angeles', 'Sacramento'])
-depart_slot = Slot.new(depart_var, ['Where would you like to depart from?', 'What\'s your departure?'])
+depart_slot = Slot.new(depart_var, ['What city are you departing from?', 'Where would you like to depart from?', 'What\'s your departure?'])
 
 dest_var = Variable.new('destination', ['San Diego', 'San Francisco', 'Los Angeles', 'Sacramento'])
 dest_slot = Slot.new(dest_var, ['What is your destination?'])
@@ -18,7 +18,8 @@ airline_slot = Slot.new(airline_var, ['Which airline do you want to fly?'])
 seat_var = Variable.new('seat', (0..40).to_a.map{|x| x.to_s})
 seat_slot = Slot.new(seat_var, ['Which seat would you like?'])
 
-temp_slot = Slot.new(day_var, ['What day are you flying?'])
+temp_var = Variable.new('day', (0..31).to_a.map{|x| x.to_s}, 2)
+temp_slot = Slot.new(temp_var, 'What day are you flying?')
 
 while(true)
     temp_slot.run
