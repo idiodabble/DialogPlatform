@@ -89,10 +89,6 @@ class Variable
         @values.map(&:confidence).reduce(:+)
     end
 
-    def response
-        nil
-    end
-
     # degree is a number 0 to 3 determining how much grounding to use. 0 is none, 3 is the most verbose
     def grounding(selections, degree = 1)
         case degree
@@ -486,10 +482,7 @@ p next_extraction
 
     def selection_reaction
         responses = @selection.map(&:response).compact
-        # value specific responses
         responses.each{|response| puts response}
-        # general variable response 
-        puts @variable.response unless @variable.response.nil?
         # more succinct in following runs
         if @run_count > 1
             puts @variable.grounding(@selection, 2)
