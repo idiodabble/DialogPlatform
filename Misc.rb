@@ -187,9 +187,10 @@ class Variable
             (1..utterance.length).each do |num_words|
                 (0..(utterance.length - num_words)).each do |start_index|
                     sub_str, words = utterance.select_slice(start_index, start_index + num_words)
-                    p "words", words
                     score = edit_distance(sub_str, phrase, value)
-                    score = account_for_user_confidences(score, words)
+                    if score > 0
+                        score = account_for_user_confidences(utterance, score, sub_str, words)
+                    end
                     # p "score", score, "phrase", phrase, "value", value
                     if score > max_score then
                         max_score = score
@@ -252,10 +253,22 @@ class Variable
         1 - (m[l_len][p_len].to_f/len)
     end
 
-    def account_for_user_confidences(score, words)
-
-
-        return score
+    def account_for_user_confidences(utterance, score, sub_str, words)
+        str_len = sub_str.length
+        alt_score = 0
+        words.each_with_index do |index_in_utterance, i|
+            word = utterance[index_in_utterance]
+            len = word.length
+            con = word.confidence
+            # p "i", i
+            if i == 0
+                alt_score = alt_score + (score * (len.to_f / str_len) * con)
+            else
+                alt_score = alt_score + (score * ((len.to_f + 1) / str_len) * con)
+            end
+        end
+        p "orginal score", score, "alterted score", alt_score
+        return alt_score
     end
 
 
@@ -271,7 +284,6 @@ class Variable
     end
 
     def top_extraction(extraction)
-        p "extraction from top", extraction[0].word_indexes
         Extraction.new(extraction.sort{|a, b|
             first_order = b.confidence <=> a.confidence
             #first_order == 0 ? b[:position] <=> a[:position] : first_order
