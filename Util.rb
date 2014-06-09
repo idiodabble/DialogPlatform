@@ -1,6 +1,25 @@
 require './Misc'
 
 class Util
+    def self.extract_yes_no(utterance)
+        if utterance.size == 1
+            word = utterance.first
+            if Util.no_set.include? word
+                return Value.new('no', word.confidence) 
+            elsif Util.yes_set.include? word
+                return Value.new('yes', word.confidence)
+            end
+        end
+        no = utterance.find{|word| Util.no_set.include? word}
+        yes = utterance.find{|word| Util.yes_set.include? word}
+        if no && yes.nil?
+            return Value.new('no', no.confidence / utterance.size)
+        elsif no.nil? && yes
+            return Value.new('yes', yes.confidence / utterance.size)
+        end
+        return Value.new('not found', 0)
+    end
+
     # returns 'green, purple, and red' for ['green', 'purple', 'red']
     def self.english_list(list)
         if list.size == 0
@@ -52,3 +71,11 @@ class Util
         ['change', 'actually', 'replace', 'switch', 'swap']
     end
 end
+
+# TODO: when extracting multiple slots at a time, need to ignore overlapped values. e.g.:
+# say cities for departure and destination are the same, and say
+# the phrasings for destination are   [/#{value}/, /from #{value}/]
+# and the phrasings for departure are [/#{value}/, /to #{value}/]
+# we ignore instances of /#{value}/ completely and only look for the ones with 'from' or 'to'
+# and if it doesn't find anything, have a special disambiguation_response
+

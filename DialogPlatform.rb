@@ -44,15 +44,15 @@ class Slot
     # prompts: an array of possible prompts
     #    a prompt is what the system tells the user at the start of the slot
     #    such as 'Where would you like to depart from?'
-    # extract_threshold: number between 0 and 1, user input will be accepted if confidence is above this threshold 
+    # select_threshold: number between 0 and 1, user input will be accepted if confidence is above this threshold 
     # clarify_threshold: number between 0 and 1, clarification will be requested if confidence is above this threshold 
-    #    and below extract_threshold. If confidence is below clarify_threshold, the run method will return false
+    #    and below select_threshold. If confidence is below clarify_threshold, the run method will return false
     #    and let somebody else figure out what to do
     # utterances: array containing every utterance the user has said. An utterance is an array of Words
-    def initialize(variable, prompts, extract_threshold = 0.6, clarify_threshold = 0.3)
+    def initialize(variable, prompts, select_threshold = 0.6, clarify_threshold = 0.3)
         @variable = variable
         @prompts = prompts
-        @extract_threshold = extract_threshold
+        @select_threshold = select_threshold
         @clarify_threshold = clarify_threshold
         @utterances = []
         @run_count = 0
@@ -92,13 +92,14 @@ class Slot
             @extraction = @variable.extract(@utterances.last)
             p @extraction if DEBUG
             @selection = @variable.top_extraction(@extraction)
+            @confidence = @selection.confidence
             print "Selection confidence: " if DEBUG
-            p @selection.confidence if DEBUG
-            if @selection.confidence >= @extract_threshold
+            p @confidence if DEBUG
+            if @confidence >= @select_threshold
                 break
-            elsif @selection.confidence >= @clarify_threshold
+            elsif @confidence >= @clarify_threshold
                 #TODO: need to increase likelihood of all extractions, not just top
-                break if did_you_say_reaction
+                break if did_you_say_reaction(@selection)
             else
                 # returns nil so coder deccides whether to use run_clarification or do something else,
                 # because maybe the user is trying to jump
@@ -114,36 +115,88 @@ class Slot
         return @selection
     end
 
-    # style question: keep parameters or keep class fields?
-    def did_you_say_reaction
-        puts apologetic(@variable.did_you_say_prompt(@selection))
+    def did_you_say_reaction(extraction)
+        puts "did you say reaction" if DEBUG
+        puts apologetic(@variable.did_you_say_prompt(extraction))
         @utterances << get_input
-        line = @utterances.last.line
-        if Util.no_set.include? line
-            rejection_likelihood(@selection) if @selection.size == 1
-            puts "Oh, what did you mean?"
-            @utterances << get_input
-        elsif Util.no_set.find{|no_word| line[no_word] != nil} != nil
-            rejection_likelihood(@selection) if @selection.size == 1
-        elsif Util.yes_set.find{|no_word| line[no_word] != nil} != nil
-            return true
+        utterance = @utterances.last
+        answer = Util.extract_yes_no(utterance)
+        next_extraction = @variable.top_extraction(@variable.extract(utterance))
+
+        # determines what selections are they trying to correct to
+        selections = nil
+        @confidence = 0
+        if answer == 'no'
+            rejection_likelihood(extraction, answer.confidence)
+            if next_extraction != extraction
+                selection = next_extraction
+                increase_likelihood(selection)
+            end
         else
-            repetition_likelihood(@extraction)
+            if answer == 'yes'
+                selection = extraction
+                confirmation_likelihood(selection, answer.confidence)
+            end
+            # does this comparison work?
+            p "yo"
+            p extraction
+            p next_extraction
+            repetition = Extraction.new(extraction & next_extraction)
+            p repetition
+            if !repetition.empty?
+                selection = repetition
+                @confidence = selection.confidence * (repetition.size + 4) / (extraction.size + 4)
+                confirmation_likelihood(selection, @confidence)
+                # TODO: problem: say max_selection_size is 2 and Values are number in range [0,20]
+                #                if they say "14" we should accept 14, rather than thinking they're also trying to do "1" and "4"
+                #                however, if they say a bunch of different numbers and only one is in common, we don't want to think
+                #                that we're doing well
+            end
+        end
+        p selection if DEBUG
+        print "confidence: " if DEBUG
+        p @confidence if DEBUG
+
+        # determines what to do with these selections
+        if selection == nil
+            puts apologetic(dont_understand_prompt)
+            # TODO: slightly increase next_extractions_hash.likelihood
+        else
+            if @confidence >= @select_threshold
+                @selection = selection
+                return true
+            elsif @confidence >= @clarify_threshold
+                return did_you_say_reaction(selection)
+            else
+                puts apologetic(dont_understand_prompt)
+                # TODO: slightly increase next_extractions_hash.likelihood
+            end
         end
         return false
     end
 
-    # again, do something less dumb
-    def rejection_likelihood(extractions)
-        repetition_likelihood(@variable.values - extractions)
+    def rejection_likelihood(extraction, confidence)
+        extraction.each do |value|
+            #variable.prob_mass += extraction.likelihood * confidence
+            p value
+            p confidence
+            value.confidence -= confidence
+        end
     end
 
-    # style question: what to name the parameter?
-    def repetition_likelihood(extractions)
-        extractions.each{|extraction|
-            # TODO: make this not dumb
-            extraction.confidence += extraction.confidence
-        }
+    def increase_likelihood(extraction)
+        extraction.each do |value|
+            #variable.prob_mass += extraction.likelihood * confidence
+            value.confidence += value.confidence / 2
+        end
+    end
+
+    def confirmation_likelihood(extraction, confidence)
+        extraction.each do |value|
+            #variable.prob_mass += extraction.likelihood * confidence
+            p value.confidence
+            value.confidence += value.confidence * confidence
+        end
     end
 
     # this is how the coder can escape the Slot, in case the user is trying to exit or jump elsewhere
@@ -153,7 +206,11 @@ class Slot
     end
 
     def extracted_nothing_prompt
-        puts apologetic("I'm not sure what you said, could you repeat your response?")
+        apologetic(dont_understand_prompt)
+    end
+
+    def dont_understand_prompt
+        "I don't understand what you said."
     end
 
     def extracted_nothing_reaction
@@ -164,10 +221,7 @@ class Slot
 
     def selection_reaction
         responses = @selection.map(&:response).compact
-        # value specific responses
         responses.each{|response| puts response}
-        # general variable response 
-        puts @variable.response unless @variable.response.nil?
         # more succinct in following runs
         if @run_count > 1
             puts @variable.grounding(@selection, 2)
@@ -308,7 +362,7 @@ class MultiSlot
         variables.each do |variable|
             extraction = variable.extract(utterance)
             top_extraction = variable.top_extraction(extraction)
-            p top_extraction
+            p "top extraction", top_extraction
             extractions[variable] = top_extraction
         end
 
@@ -428,7 +482,7 @@ class MultiSlot
         puts apologetic(did_you_say_prompt(extractions))
         @utterances << get_input
         utterance = @utterances.last
-        answer = extract_yes_no(utterance)
+        answer = Util.extract_yes_no(utterance)
         next_extractions = extract(utterance, extractions.keys)#.select{|var, extraction| extraction.confidence > @change_threshold}
 
         # determines what selections are they trying to correct to
@@ -493,27 +547,6 @@ class MultiSlot
         end
         return change_hash
     end
-
-    def extract_yes_no(utterance)
-        if utterance.size == 1
-            word = utterance.first
-            if Util.no_set.include? word
-                return Value.new('no', word.confidence) 
-            elsif Util.yes_set.include? word
-                return Value.new('yes', word.confidence)
-            end
-        end
-        no = utterance.find{|word| Util.no_set.include? word}
-        yes = utterance.find{|word| Util.yes_set.include? word}
-        if no && yes.nil?
-            return Value.new('no', no.confidence / utterance.size)
-        elsif no.nil? && yes
-            return Value.new('yes', yes.confidence / utterance.size)
-        end
-        return Value.new('not found', 0)
-    end
-
-    # TODO: need to figure out which likelihoods need to change. Extractions? Extraction? Value?
 
     def rejection_likelihood(extractions, confidence)
         extractions.each do |variable, extraction|
