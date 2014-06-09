@@ -312,11 +312,14 @@ class MultiSlot
             utterance = @utterances.last
 
             extractions = extract(utterance, remaining_vars)
+            puts "YO YO YO 2"
+            extractions.each{|var, extraction| puts var.name; extraction.each{|val| puts "value: #{val}\nconfidence: #{val.confidence}"}} if DEBUG
             confident_hash = extractions.select{|var, extractions| extractions.confidence >= @select_threshold}
             change_hash = simpler_group(extract_change(utterance, @selections.keys))
             maybe_hash = extractions.select{|var, extractions| extractions.confidence < @select_threshold && extractions.confidence >= @clarify_threshold}
 
             selection_reaction(confident_hash) unless confident_hash.empty?
+            p maybe_hash
 
             if !change_hash.empty?
                 change_reaction(change_hash)
@@ -361,15 +364,21 @@ class MultiSlot
         extractions = {}
         variables.each do |variable|
             extraction = variable.extract(utterance)
+            puts "YO YO YO 0"
+            extractions.each{|var, extraction| puts var.name; extraction.each{|val| puts "value: #{val}\nconfidence: #{val.confidence}"}} if DEBUG
             top_extraction = variable.top_extraction(extraction)
             p "top extraction", top_extraction[0].word_indexes if DEBUG
             extractions[variable] = top_extraction
+            puts "YO YO YO 0.5"
+            extractions.each{|var, extraction| puts var.name; extraction.each{|val| puts "value: #{val}\nconfidence: #{val.confidence}"}} if DEBUG
         end
         if(is_overlapping(extractions))
             p "There is Overlapping" if DEBUG
             new_extractions = {}
             variables.each do |variable|
                 extraction = variable.extract(utterance, require_phrase)
+            puts "YO YO YO 1"
+            extractions.each{|var, extraction| puts var.name; extraction.each{|val| puts "value: #{val}\nconfidence: #{val.confidence}"}} if DEBUG
                 top_extraction = variable.top_extraction(extraction)
                 p "top extraction", top_extraction[0].word_indexes if DEBUG
                 new_extractions[variable] = top_extraction
@@ -380,6 +389,8 @@ class MultiSlot
                 return new_extractions
             end
         else
+            puts "YO YO YO 1.5"
+            extractions.each{|var, extraction| puts var.name; extraction.each{|val| puts "value: #{val}\nconfidence: #{val.confidence}"}} if DEBUG
             p "No Overlapping" if DEBUG
         end
         return extractions
@@ -387,12 +398,10 @@ class MultiSlot
 
     # Checks to see if the any words are used by multiple slots
     def is_overlapping(extractions)
-        top = Set.new
-        extractions.each do |extract, value|
-            return true if top.include? value
-            value.each do |index|
-                top.add(index)
-            end
+        top = []
+        extractions.each do |variable, extraction|
+            return true if !(top & extraction).empty?
+            top |= extraction
         end
         return false
     end
