@@ -13,7 +13,7 @@ class Utterance < Array
         (start..(start + length - 1)).each do |index|
             indexes << index
         end
-        p "line", self.line, "length", length, "indexes", indexes
+        #p "line", self.line, "length", length, "indexes", indexes
         return sliced.join(' '), indexes
     end
 end
@@ -155,10 +155,10 @@ class Variable
         @values.each do |value|
             confidence, words = calc_confidence(utterance, value, require_phrase)
             #value.confidence = confidence * confidence.abs
-            if confidence > 0
-                value.confidence = (value.confidence + 2 * confidence) / 3
+            #if confidence > 0
+                value.confidence = (value.confidence + 2 * confidence * confidence.abs) / 3
                 value.word_indexes = words
-            end
+            #end
             puts "(DEBUG) value: #{value} confidence: #{confidence} new value confidence: #{value.confidence}" if DEBUG
             extraction << value
         end
@@ -257,9 +257,9 @@ class Variable
     def account_for_user_confidences(utterance, score, sub_str, words)
         str_len = sub_str.length
         alt_score = 0
-        p "words", words
+        #p "words", words
         words.each_with_index do |index_in_utterance, i|
-            p "indexes in utterance", index_in_utterance
+            #p "indexes in utterance", index_in_utterance
             word = utterance[index_in_utterance]
             len = word.length
             con = word.confidence
@@ -270,7 +270,7 @@ class Variable
                 alt_score = alt_score + (score * ((len.to_f + 1) / str_len) * con)
             end
         end
-        p "orginal score", score, "alterted score", alt_score
+        p "original score", score, "altered score", alt_score if DEBUG
         return alt_score
     end
 

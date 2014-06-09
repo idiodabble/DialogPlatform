@@ -38,7 +38,7 @@ require './Util'
 # 2. write a Platform class, higher than Slot or MultiSlot, that will take advantage of methods like preconditions and next_slot
 # 3. be able to look up things and give the user options, i.e. "There are no flights at this time" or "We have flights available for $500, $400 and $300"
 
-DEBUG = true
+DEBUG = false
 
 class Slot
     # prompts: an array of possible prompts
@@ -138,11 +138,7 @@ class Slot
                 confirmation_likelihood(selection, answer.confidence)
             end
             # does this comparison work?
-            p "yo"
-            p extraction
-            p next_extraction
             repetition = Extraction.new(extraction & next_extraction)
-            p repetition
             if !repetition.empty?
                 selection = repetition
                 @confidence = selection.confidence * (repetition.size + 4) / (extraction.size + 4)
@@ -178,8 +174,6 @@ class Slot
     def rejection_likelihood(extraction, confidence)
         extraction.each do |value|
             #variable.prob_mass += extraction.likelihood * confidence
-            p value
-            p confidence
             value.confidence -= confidence
         end
     end
@@ -194,7 +188,6 @@ class Slot
     def confirmation_likelihood(extraction, confidence)
         extraction.each do |value|
             #variable.prob_mass += extraction.likelihood * confidence
-            p value.confidence
             value.confidence += value.confidence * confidence
         end
     end
@@ -312,14 +305,12 @@ class MultiSlot
             utterance = @utterances.last
 
             extractions = extract(utterance, remaining_vars)
-            puts "YO YO YO 2"
             extractions.each{|var, extraction| puts var.name; extraction.each{|val| puts "value: #{val}\nconfidence: #{val.confidence}"}} if DEBUG
             confident_hash = extractions.select{|var, extractions| extractions.confidence >= @select_threshold}
             change_hash = simpler_group(extract_change(utterance, @selections.keys))
             maybe_hash = extractions.select{|var, extractions| extractions.confidence < @select_threshold && extractions.confidence >= @clarify_threshold}
 
             selection_reaction(confident_hash) unless confident_hash.empty?
-            p maybe_hash
 
             if !change_hash.empty?
                 change_reaction(change_hash)
@@ -364,21 +355,18 @@ class MultiSlot
         extractions = {}
         variables.each do |variable|
             extraction = variable.extract(utterance)
-            puts "YO YO YO 0"
-            extractions.each{|var, extraction| puts var.name; extraction.each{|val| puts "value: #{val}\nconfidence: #{val.confidence}"}} if DEBUG
+            #@variables.each{|var| next unless var.name == 'time of day'; puts var.name; var.values.each{|val| puts "value: #{val}\nconfidence: #{val.confidence}"}} if DEBUG
             top_extraction = variable.top_extraction(extraction)
             p "top extraction", top_extraction[0].word_indexes if DEBUG
             extractions[variable] = top_extraction
-            puts "YO YO YO 0.5"
-            extractions.each{|var, extraction| puts var.name; extraction.each{|val| puts "value: #{val}\nconfidence: #{val.confidence}"}} if DEBUG
+            #puts "YO YO YO 0.5"
+            #extractions.each{|var, extraction| puts var.name; extraction.each{|val| puts "value: #{val}\nconfidence: #{val.confidence}"}} if DEBUG
         end
         if(is_overlapping(extractions))
             p "There is Overlapping" if DEBUG
             new_extractions = {}
             variables.each do |variable|
                 extraction = variable.extract(utterance, require_phrase)
-            puts "YO YO YO 1"
-            extractions.each{|var, extraction| puts var.name; extraction.each{|val| puts "value: #{val}\nconfidence: #{val.confidence}"}} if DEBUG
                 top_extraction = variable.top_extraction(extraction)
                 p "top extraction", top_extraction[0].word_indexes if DEBUG
                 new_extractions[variable] = top_extraction
@@ -389,8 +377,6 @@ class MultiSlot
                 return new_extractions
             end
         else
-            puts "YO YO YO 1.5"
-            extractions.each{|var, extraction| puts var.name; extraction.each{|val| puts "value: #{val}\nconfidence: #{val.confidence}"}} if DEBUG
             p "No Overlapping" if DEBUG
         end
         return extractions
@@ -571,8 +557,6 @@ class MultiSlot
         extractions.each do |variable, extraction|
             extraction.each do |value|
                 #variable.prob_mass += extraction.likelihood * confidence
-                p value
-                p confidence
                 value.confidence -= confidence
             end
         end
@@ -591,7 +575,6 @@ class MultiSlot
         extractions.each do |variable, extraction|
             extraction.each do |value|
                 #variable.prob_mass += extraction.likelihood * confidence
-                p value.confidence
                 value.confidence += value.confidence * confidence
             end
         end
