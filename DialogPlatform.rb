@@ -7,13 +7,14 @@ require './Util'
 
 # Jeremy TODO LIST:
 
-# 1. Add synonyms
-# 2. do multi-word prefixes work?
+# 1. Make prefixes and suffixes work again
+# 2. Add synonyms
+# 3. Add multi-word prefixes
 
 # Steff TODO list:
 
-# 1. test change_reaction
-# 2. test MultiSlot with variables with max_selections higher than 1
+# 1. Make extract not change likelihoods
+# 2. test change_reaction, then test MultiSlot with variables with max_selections higher than 1
 # 3. create a default variable_name prefix of some sort
 
 # 4. change the rejection/confirmation/increase likelihood methods?
