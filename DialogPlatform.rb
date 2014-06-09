@@ -7,25 +7,12 @@ require './Util'
 
 # Jeremy TODO LIST:
 
-# 1. Bug:
-    # In the time MultiSlot in Reservations, if you say
-    # - January 2014
-    # - No
-    # - Afternoon of the 21st
-    # - 21st
-    # It sets 2 for the day instead of 21
-
-    # also, maybe the same bug: why does it think I'm choosing 14 for my day when I type "January 7, 2014"? Shouldn't 7, an exact match, be better than 2014?
-
-# 2. Treat San (0.1) Diego (0.1) differently from San (1) Diego (1)
-# 3. Add synonyms
-# 4. Write MultiSlot version of extract, which needs to detect overlaps (same values in different variables)
-
-# also, do multi-word prefixes work?
+# 1. Add synonyms
+# 2. do multi-word prefixes work?
 
 # Steff TODO list:
 
-# 1. Finish testing did_you_say_reaction, then port everything over to change_reaction
+# 1. test change_reaction
 # 2. test MultiSlot with variables with max_selections higher than 1
 # 3. create a default variable_name prefix of some sort
 
@@ -467,6 +454,50 @@ class MultiSlot
     def change_reaction(extractions)
         puts "change reaction" if DEBUG
         puts apologetic(change_prompt(extractions))
+        @utterances << get_input
+        utterance = @utterances.last
+        answer = Util.extract_yes_no(utterance)
+        next_extractions = extract(utterance, extractions.keys, false)#.select{|var, extraction| extraction.confidence > @change_threshold}
+
+        # determines what selections are they trying to correct to
+        selections = nil
+        if answer == 'no'
+            rejection_likelihood(extractions, answer.confidence)
+            selections = next_extractions.select{|var, extraction| extraction != extractions[var]}
+            increase_likelihood(selections)
+        else
+            if answer == 'yes'
+                selections = extractions
+                confirmation_likelihood(selections, answer.confidence)
+            end
+            # does this comparison work?
+            if extractions == next_extractions
+                selections = extractions
+                confirmation_likelihood(selections, next_extractions.values.map(&:confidence).min)
+            end
+        end
+
+        p selections if DEBUG
+
+        # determines what to do with these selections
+        if selections == nil
+            puts apologetic(dont_understand_prompt)
+            # TODO: slightly increase next_extractions_hash.likelihood
+        else
+            confident_hash = selections.select{|var, extraction| p extraction.confidence if DEBUG; extraction.confidence >= @select_threshold}
+            maybe_hash = selections.select{|var, extraction| p extraction.confidence if DEBUG; extraction.confidence >= @clarify_threshold}
+            p confident_hash if DEBUG
+            if confident_hash.size == selections.size
+                selection_reaction(confident_hash)
+            elsif confident_hash.size > 0
+                did_you_say_reaction(confident_hash)
+            elsif maybe_hash.size > 0
+                did_you_say_reaction(maybe_hash)
+            else
+                puts apologetic(dont_understand_prompt)
+                # TODO: slightly increase next_extractions_hash.likelihood
+            end
+        end
     end
 
     # logic for this is made simpler by the simpler_group method
@@ -496,11 +527,7 @@ class MultiSlot
         selections = nil
         if answer == 'no'
             rejection_likelihood(extractions, answer.confidence)
-            #puts "YO YO YO YO YO"
-            #p extractions
-            #p next_extractions
             selections = next_extractions.select{|var, extraction| extraction != extractions[var]}
-            #p selections
             increase_likelihood(selections)
         else
             if answer == 'yes'
