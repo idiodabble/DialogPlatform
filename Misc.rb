@@ -13,6 +13,7 @@ class Utterance < Array
         (start..(start + length - 1)).each do |index|
             indexes << index
         end
+        p "line", self.line, "length", length, "indexes", indexes
         return sliced.join(' '), indexes
     end
 end
@@ -186,7 +187,7 @@ class Variable
             phrase_len = phrase.length
             (1..utterance.length).each do |num_words|
                 (0..(utterance.length - num_words)).each do |start_index|
-                    sub_str, words = utterance.select_slice(start_index, start_index + num_words)
+                    sub_str, words = utterance.select_slice(start_index, num_words)
                     score = edit_distance(sub_str, phrase, value)
                     if score > 0
                         score = account_for_user_confidences(utterance, score, sub_str, words)
@@ -256,7 +257,9 @@ class Variable
     def account_for_user_confidences(utterance, score, sub_str, words)
         str_len = sub_str.length
         alt_score = 0
+        p "words", words
         words.each_with_index do |index_in_utterance, i|
+            p "indexes in utterance", index_in_utterance
             word = utterance[index_in_utterance]
             len = word.length
             con = word.confidence
