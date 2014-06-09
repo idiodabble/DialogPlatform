@@ -9,7 +9,11 @@ class Utterance < Array
 
     def select_slice(start, length)
         sliced = self.slice(start, length)
-        return sliced.join(' '), sliced
+        indexes = Array.new
+        (start..(start + length - 1)).each do |index|
+            indexes << index
+        end
+        return sliced.join(' '), indexes
     end
 end
 
@@ -141,14 +145,14 @@ class Variable
     end
 
     # return array of hash of value, confidence and position
-    def extract(utterance)
+    def extract(utterance, require_phrase=false)
         puts @name if DEBUG
         puts "(DEBUG) utterance: " if DEBUG
         p utterance if DEBUG
         extraction = Extraction.new
 
         @values.each do |value|
-            confidence, words = calc_confidence(utterance, value)
+            confidence, words = calc_confidence(utterance, value, require_phrase)
             #value.confidence = confidence * confidence.abs
             if confidence > 0
                 value.confidence = (value.confidence + 2 * confidence) / 3
@@ -173,8 +177,8 @@ class Variable
     # TODO do something smarter
     # min_conf * value.likelihood * @values.size
 
-    def calc_confidence(utterance, value)
-        phrasings = get_possible_phrasings(utterance, value)
+    def calc_confidence(utterance, value, require_phrase)
+        phrasings = get_possible_phrasings(utterance, value, require_phrase)
         max_score = 0
         max_words_used = []
         phrasings.each do |phrase|
@@ -183,7 +187,9 @@ class Variable
             (1..utterance.length).each do |num_words|
                 (0..(utterance.length - num_words)).each do |start_index|
                     sub_str, words = utterance.select_slice(start_index, start_index + num_words)
+                    p "words", words
                     score = edit_distance(sub_str, phrase, value)
+                    score = account_for_user_confidences(score, words)
                     # p "score", score, "phrase", phrase, "value", value
                     if score > max_score then
                         max_score = score
@@ -196,9 +202,10 @@ class Variable
     end
 
     # Checks input for possible phrasings for the input
-    def get_possible_phrasings(utterance, value)
+    def get_possible_phrasings(utterance, value, require_phrase)
         #p "line", line, "value", value
-        valid_phrasings = [value]
+        valid_phrasings = Array.new
+        valid_phrasings << value if !require_phrase
         prefixes = @prefixes.concat value.prefixes
         suffixes = @suffixes.concat value.suffixes
         prefixes.each do |pre|
@@ -245,6 +252,13 @@ class Variable
         1 - (m[l_len][p_len].to_f/len)
     end
 
+    def account_for_user_confidences(score, words)
+
+
+        return score
+    end
+
+
     def scores_to_prob(extraction)
         sum = 0
         extraction.each do |value|
@@ -257,6 +271,7 @@ class Variable
     end
 
     def top_extraction(extraction)
+        p "extraction from top", extraction[0].word_indexes
         Extraction.new(extraction.sort{|a, b|
             first_order = b.confidence <=> a.confidence
             #first_order == 0 ? b[:position] <=> a[:position] : first_order

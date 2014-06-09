@@ -362,18 +362,26 @@ class MultiSlot
         variables.each do |variable|
             extraction = variable.extract(utterance)
             top_extraction = variable.top_extraction(extraction)
-            p "top extraction", top_extraction
+            p "top extraction", top_extraction[0].word_indexes if DEBUG
             extractions[variable] = top_extraction
         end
-
-
-
-
-
-
-
-
-
+        if(is_overlapping(extractions))
+            p "There is Overlapping" if DEBUG
+            new_extractions = {}
+            variables.each do |variable|
+                extraction = variable.extract(utterance, require_phrase)
+                top_extraction = variable.top_extraction(extraction)
+                p "top extraction", top_extraction[0].word_indexes if DEBUG
+                new_extractions[variable] = top_extraction
+            end
+            if(is_overlapping(new_extractions)) then
+                return extractions
+            else
+                return new_extractions
+            end
+        else
+            p "No Overlapping" if DEBUG
+        end
         return extractions
     end
 
@@ -382,7 +390,9 @@ class MultiSlot
         top = Set.new
         extractions.each do |extract, value|
             return true if top.include? value
-            top.add(value)
+            value.each do |index|
+                top.add(index)
+            end
         end
         return false
     end
