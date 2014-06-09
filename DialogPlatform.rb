@@ -186,9 +186,11 @@ class Slot
     end
 
     def confirmation_likelihood(extraction, confidence)
+        puts "confirmation likelihood" if DEBUG
         extraction.each do |value|
             #variable.prob_mass += extraction.likelihood * confidence
             value.confidence += value.confidence * confidence
+            puts "#{value}: #{value.confidence}" if DEBUG
         end
     end
 
@@ -329,17 +331,17 @@ class MultiSlot
     end
 
     # TODO: need to get rid of phrasing overlaps
-    def extract(utterance, variables)
+    def extract(utterance, variables, change_likelihood = true)
         if(variables.length == 1) then # Single-slot extract
-            return extract_single_slot(utterance, variables[0])
+            return extract_single_slot(utterance, variables[0], change_likelihood)
         else # Multi-slot extract
-            return extract_multi_slot(utterance, variables)
+            return extract_multi_slot(utterance, variables, change_likelihood)
         end
     end
 
-    def extract_single_slot(utterance, variable)
+    def extract_single_slot(utterance, variable, change_likelihood = true)
         extractions = {}
-        extraction = variable.extract(utterance)
+        extraction = variable.extract(utterance, false, change_likelihood)
         top_extraction = variable.top_extraction(extraction)
         extractions[variable] = top_extraction
         return extractions
@@ -348,13 +350,13 @@ class MultiSlot
     # Checks all the slots and attempts to assign values to each
     # If there are overlaps that can't be resolved: return true 
     # and revert to default
-    def extract_multi_slot(utterance, variables)
+    def extract_multi_slot(utterance, variables, change_likelihood)
         # run all the varibles extract methods
         # make sure to know which words are used
         # if the words are overlapped, return false
         extractions = {}
         variables.each do |variable|
-            extraction = variable.extract(utterance)
+            extraction = variable.extract(utterance, false, change_likelihood)
             #@variables.each{|var| next unless var.name == 'time of day'; puts var.name; var.values.each{|val| puts "value: #{val}\nconfidence: #{val.confidence}"}} if DEBUG
             top_extraction = variable.top_extraction(extraction)
             p "top extraction", top_extraction[0].word_indexes if DEBUG
@@ -366,7 +368,7 @@ class MultiSlot
             p "There is Overlapping" if DEBUG
             new_extractions = {}
             variables.each do |variable|
-                extraction = variable.extract(utterance, require_phrase)
+                extraction = variable.extract(utterance, require_phrase, change_likelihood)
                 top_extraction = variable.top_extraction(extraction)
                 p "top extraction", top_extraction[0].word_indexes if DEBUG
                 new_extractions[variable] = top_extraction
@@ -488,7 +490,7 @@ class MultiSlot
         @utterances << get_input
         utterance = @utterances.last
         answer = Util.extract_yes_no(utterance)
-        next_extractions = extract(utterance, extractions.keys)#.select{|var, extraction| extraction.confidence > @change_threshold}
+        next_extractions = extract(utterance, extractions.keys, false)#.select{|var, extraction| extraction.confidence > @change_threshold}
 
         # determines what selections are they trying to correct to
         selections = nil

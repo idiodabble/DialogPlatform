@@ -146,7 +146,7 @@ class Variable
     end
 
     # return array of hash of value, confidence and position
-    def extract(utterance, require_phrase=false)
+    def extract(utterance, require_phrase = false, change_likelihood = true)
         puts @name if DEBUG
         puts "(DEBUG) utterance: " if DEBUG
         p utterance if DEBUG
@@ -154,11 +154,12 @@ class Variable
 
         @values.each do |value|
             confidence, words = calc_confidence(utterance, value, require_phrase)
+            puts "(DEBUG) old value confidence: #{value.confidence} and confidence: #{confidence}" if DEBUG
             #value.confidence = confidence * confidence.abs
-            #if confidence > 0
-                value.confidence = (value.confidence + 2 * confidence * confidence.abs) / 3
+            if change_likelihood
+                value.confidence = (value.confidence + 2 * confidence) / 3
                 value.word_indexes = words
-            #end
+            end
             puts "(DEBUG) value: #{value} confidence: #{confidence} new value confidence: #{value.confidence}" if DEBUG
             extraction << value
         end
