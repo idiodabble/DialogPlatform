@@ -162,18 +162,6 @@ class Variable
         return extraction
     end
 
-    # extractions = @values.map { |value|
-    #     phrasings = value.phrasings.nil? ? phrasings(value) : value.phrasings
-    #     phrasing = phrasings.find{|phrasing| line[phrasing] != nil}
-    #     unless phrasing.nil?
-    #         confidence = calc_confidence(utterance, value, phrasing)
-    #         # TODO: could get position this when we do line[phrasing]
-    #         Extraction.new(value, confidence, line.index(phrasing))
-    #     end
-    # }.compact
-    # orders the extractions by probability, then by most recently said in utterance
-    # also, what to do if 'san francisco' said once but 'san diego' said twice?
-
     # given an utterance (which is an array of Word, with the .line method to get rid of parenthetical likelihoods)
     # and given all the fields in this Variable class, such as @values
     # return a list of all the values and your confidence that the user is trying to select them, for example:
@@ -186,56 +174,54 @@ class Variable
     # min_conf * value.likelihood * @values.size
 
     def calc_confidence(utterance, value)
-        line = utterance.line
-        phrasings = get_possible_phrasings(line, value)
+        phrasings = get_possible_phrasings(utterance, value)
+        p "phrasings", phrasings
         # p "phrasings", phrasings
         max_score = 0
-        line_len = line.length
         phrasings.each do |phrase|
             score = 0
             phrase_len = phrase.length
-            if line_len > phrase_len
-                if line_len > phrase_len + 10
-                    max_length = phrase_len + 10
-                else
-                    max_length = line_len
+            (1..utterance.length).each do |num_words|
+                p "length", utterance.length
+                (0..(utterance.length - num_words)).each do |start_index|
+                    sub_str = utterance.select_slice(start_index, start_index + num_words)
+                    score = edit_distance(sub_str, phrase)
+                    p "score", score, "phrase", phrase, "value", value
+                    p "", ""
+                    max_score = [max_score, score].max
                 end
-                (phrase_len..max_length).each do |size|
-                    (0..(line_len - size - 1)).each do |start_index|
-                        sub_str = line[start_index, start_index + size]
-                        score = edit_distance(sub_str, phrase)
-                        max_score = [max_score, score].max
-                    end
-                end
-            else
-                max_score = edit_distance(line, phrase)
             end
         end
         max_score
     end
 
-    def get_possible_phrasings(line, value)
+    # Checks input for possible phrasings for the input
+    def get_possible_phrasings(utterance, value)
         #p "line", line, "value", value
         valid_phrasings = [value]
         prefixes = @prefixes.concat value.prefixes
         suffixes = @suffixes.concat value.suffixes
         prefixes.each do |pre|
-            if line.include? pre
-                valid_phrasings << (pre + ' ' + value)
+            utterance.each do |word|
+                if word == pre
+                    valid_phrasings << (pre + ' ' + value)
+                end
             end
         end
         suffixes.each do |suf|
-            if line.include? suf
-                valid_phrasings << (value + ' ' + suf)
+            utterance.each do |word|
+                if word == suf
+                    valid_phrasings << (value + ' ' + suf)
+                end
             end
         end
         valid_phrasings
     end
 
-    def edit_distance(line, phrasing)
-        l = line.downcase
+    def edit_distance(sub_str, phrasing)
+        l = sub_str.downcase
         p = phrasing.downcase
-        l_len = line.length
+        l_len = sub_str.length
         p_len = phrasing.length
         return p_len if l_len == 0
         return l_len if p_len == 0
@@ -294,6 +280,11 @@ end
 class Utterance < Array
     def line
         self.join(' ')
+    end
+
+    def select_slice(start, length)
+        sliced = self.slice(start, length)
+        sliced.join(' ')
     end
 end
 
