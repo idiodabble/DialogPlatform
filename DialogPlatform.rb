@@ -1,3 +1,7 @@
+require 'set'
+require './Misc'
+require './Util'
+
 # Designed to let users easily make new dialog systems with a platform that is heavily modifiable, so it can be customized to the individual dialog system's needs.
 # Author:: Daniel Steffee and Jeremy Hines
 
@@ -35,276 +39,6 @@
 # 3. be able to look up things and give the user options, i.e. "There are no flights at this time" or "We have flights available for $500, $400 and $300"
 
 DEBUG = true
-
-class Value < String
-    attr_accessor :prior, :confidence, :phrasings, :response, :next_slot, :prefixes, :suffixes, :synonyms
-    
-    # Params:
-    # +name+:: a string such as 'San Francisco'
-    # +prior+:: prior probability of this value being selected, e.g. "San Francisco" having 0.3 and "San Diego" having 0.2 because SFO is more popular; must be a number in (0,1)
-    # +confidence+:: confidence that this value is being selected by the user; must be a number but does not have to be a probability
-    # +prefixes+:: words that we might expect to see before the value, e.g. "from" or "to"
-    # +suffixes+:: words that we might expect to see after the value, e.g. "airport"
-    # +synonyms+:: words that we might expect in place of the value, e.g. "San Fran"
-    # +response+:: response given to user if the user selects this value
-    # +next_slot+:: next Slot to go to if the user selects this value
-    def initialize(name, prior, confidence = prior, prefixes = [], suffixes = [], synonyms = [], response = nil, next_slot = nil)
-        @prior = prior; @confidence = confidence; @prefixes = prefixes; @suffixes = suffixes; @synonyms = synonyms; @response = response; @next_slot = next_slot
-        super(name)
-    end
-end
-
-#
-class Variable
-    attr_accessor :name, :values, :max_selection_size, :selection, :prefixes, :suffixes
-
-    # Params:
-    # +name+:: name of the variable, such as 'departure city'
-    # +values+:: can be an array of Values, see above
-    #         or it can be an array of strings such as ['San Diego', 'San Fransisco', 'Sacramento']
-    #         using defaults to fill in the other fields for Values
-    # +prob_mass+:: because confidences don't have to be probabilities, the total probability mass may not be 1
-    # +max_selection_size+:: the number of values a user can set at one time
-    #    example: when set to 2, 'San Diego' or 'San Diego and San Francisco' are valid responses,
-    #    but 'San Diego, San Francisco, and Los Angeles' is not
-    # +prefixes+:: words that we might expect to see before a value, e.g. "from" or "to"
-    # +suffixes+:: words that we might expect to see after a value, e.g. "airport"
-    def initialize(name, values, max_selection_size = 1, prefixes = [], suffixes = [])
-        @name = name
-        @values = values.map {|value|
-            if value.is_a?(String)
-                Value.new(value, 1.0 / values.size)
-            elsif value.is_a?(Value)
-                Value
-            else
-                raise 'Expecting a String or Value'
-            end
-        }
-        @max_selection_size = max_selection_size
-        @prefixes = prefixes
-        @suffixes = suffixes
-    end
-
-    def prob_mass
-        @values.map(&:confidence).reduce(:+)
-    end
-
-    def response
-        nil
-    end
-
-    # degree is a number 0 to 3 determining how much grounding to use. 0 is none, 3 is the most verbose
-    def grounding(selections, degree = 1)
-        case degree
-        when 1
-            if selections.size <= 1
-                "#{selections.first} was registered for the #{name}."
-            else
-                "#{Util.english_list(selections)} were registered for the #{name}."
-            end
-        when 1.5
-            if selections.size <= 1
-                "#{selections.first} was set for the #{name}."
-            else
-                "#{Util.english_list(selections)} were set for the #{name}."
-            end
-        when 2
-            "#{Util.english_list(selections)}, #{Util.affirmation_words.sample}."
-        when 3
-            Util.affirmation_words.sample.capitalize + '.'
-        end
-    end
-
-    def precondition
-        true
-    end
-
-    def default_value
-        nil
-    end
-
-    def did_you_say_prompt(extraction)
-        "I didn't hear you, did you say #{Util.english_list(extraction)}?"
-    end
-
-    def prefixes=(arr)
-        if(arr.kind_of?(Array)) then
-            @prefixes = arr
-        elsif(arr.kind_of?(String)) then
-            @prefixes = [arr]
-        else
-            p "ERROR, Prefixes are not in usable form."
-        end
-    end
-
-    def suffixes=(arr)
-        if(arr.kind_of?(Array)) then
-            @suffixes = arr
-        elsif(arr.kind_of?(String)) then
-            @suffixes = [arr]
-        else
-            p "ERROR, Suffixes are not in usable form."
-        end
-    end
-
-    # return array of hash of value, confidence and position
-    def extract(utterance)
-        puts @name if DEBUG
-        puts "(DEBUG) utterance: " if DEBUG
-        p utterance if DEBUG
-        extraction = Extraction.new
-
-        @values.each do |value|
-            confidence = calc_confidence(utterance, value)
-            #value.confidence = confidence * confidence.abs
-            value.confidence = (value.confidence + 2 * confidence) / 3 unless confidence == 0
-            puts "(DEBUG) value: #{value} confidence: #{confidence} new value confidence: #{value.confidence}" if DEBUG
-            extraction << value
-        end
-        #scores_to_prob(extractions)
-        #puts "(DEBUG) extractions: " + extractions.to_s if DEBUG
-        return extraction
-    end
-
-    # given an utterance (which is an array of Word, with the .line method to get rid of parenthetical likelihoods)
-    # and given all the fields in this Variable class, such as @values
-    # return a list of all the values and your confidence that the user is trying to select them, for example:
-    # {"San Diego" => 0.8, "San Francisco" => 0.2, "Los Angeles" => 0}
-    # or however you want to organize it
-    # also, keep in mind that every Word has an associated likelihood, and same goes for every Value
-    # words = Util.get_words_from_phrasing(utterance, phrasing)
-    # min_conf = words.map(&:confidence).min
-    # TODO do something smarter
-    # min_conf * value.likelihood * @values.size
-
-    def calc_confidence(utterance, value)
-        phrasings = get_possible_phrasings(utterance, value)
-        p "phrasings", phrasings
-        # p "phrasings", phrasings
-        max_score = 0
-        phrasings.each do |phrase|
-            score = 0
-            phrase_len = phrase.length
-            (1..utterance.length).each do |num_words|
-                (0..(utterance.length - num_words)).each do |start_index|
-                    sub_str = utterance.select_slice(start_index, start_index + num_words)
-                    score = edit_distance(sub_str, phrase)
-                    # p "score", score, "phrase", phrase, "value", value
-                    max_score = [max_score, score].max
-                end
-            end
-        end
-        max_score
-    end
-
-    # Checks input for possible phrasings for the input
-    def get_possible_phrasings(utterance, value)
-        #p "line", line, "value", value
-        valid_phrasings = [value]
-        prefixes = @prefixes.concat value.prefixes
-        suffixes = @suffixes.concat value.suffixes
-        prefixes.each do |pre|
-            utterance.each do |word|
-                if word == pre
-                    valid_phrasings << (pre + ' ' + value)
-                end
-            end
-        end
-        suffixes.each do |suf|
-            utterance.each do |word|
-                if word == suf
-                    valid_phrasings << (value + ' ' + suf)
-                end
-            end
-        end
-        valid_phrasings
-    end
-
-    def edit_distance(sub_str, phrasing)
-        l = sub_str.downcase
-        p = phrasing.downcase
-        l_len = sub_str.length
-        p_len = phrasing.length
-        return p_len if (l_len == 0 or p_len == 0)
-        m = Array.new(l_len + 1) {Array.new(p_len + 1)}
-
-        (0..l_len).each {|i| m[i][0] = i}
-        (0..p_len).each {|j| m[0][j] = j}
-        (1..p_len).each do |j|
-            (1..l_len).each do |i|
-                m[i][j] = if l[i-1] == p[j-1]  # adjust index into string
-                    m[i-1][j-1]       # no operation required
-                else
-                    [
-                        m[i-1][j]+1,    # deletion
-                        m[i][j-1]+1,    # insertion
-                        m[i-1][j-1]+2  # substitution
-                    ].min
-                end
-            end
-        end
-        len = [l_len, p_len].max
-        1 - (m[l_len][p_len].to_f/len)
-    end
-
-    def scores_to_prob(extraction)
-        sum = 0
-        extraction.each do |value|
-            sum = sum + value.confidence
-        end
-        return if sum == 0
-        extraction.each do |value|
-            value.confidence /= sum
-        end
-    end
-
-    def top_extraction(extraction)
-        Extraction.new(extraction.sort{|a, b|
-            first_order = b.confidence <=> a.confidence
-            #first_order == 0 ? b[:position] <=> a[:position] : first_order
-        }.first @max_selection_size)
-    end
-end
-
-# Every word has an associated confidence that it is what we think it is.
-# Confidence must be in the range of (0, 1]
-class Word < String
-    attr_accessor :confidence
-    def initialize(word, confidence)
-        @confidence = confidence
-        super(word)
-    end
-end
-
-# An Utterance is an array of Words.
-# Call line to get a string version of the utterance.
-class Utterance < Array
-    def line
-        self.join(' ')
-    end
-
-    def select_slice(start, length)
-        sliced = self.slice(start, length)
-        sliced.join(' ')
-    end
-end
-
-# An Extraction is an Array of Value
-class Extraction < Array
-    def confidence
-        self.map(&:confidence).min
-    end
-end
-
-# A Selection is an array of Values
-# Confidence should be a number in (0,1]
-# class Selection < Array
- #   attr_accessor :confidence
- #   def initialize(array, confidence)
- #       @confidence = confidence
- #       super(array)
- #   end
-#end
 
 class Slot
     # prompts: an array of possible prompts
@@ -363,7 +97,7 @@ class Slot
             if @selection.confidence >= @extract_threshold
                 break
             elsif @selection.confidence >= @clarify_threshold
-#TODO: need to increase likelihood of all extractions, not just top
+                #TODO: need to increase likelihood of all extractions, not just top
                 break if did_you_say_reaction
             else
                 # returns nil so coder deccides whether to use run_clarification or do something else,
@@ -442,18 +176,6 @@ class Slot
         end
     end
 
-    # sets @extractions, @selections and @confidence
-    # returns 0 if it couldn't find anything at all,
-    # otherwise returns confidence probability
-    #def extract(utterance)
-    #    if @extraction.size == 0
-    #        @confidence = 0
-    #    else
-    #        @confidence = calc_confidence(@selection)
-    #    end
-        #puts "(DEBUG) confidence: " + @confidence.to_s if DEBUG
-    #end
-
     def apologetic(prompt)
         if @repetitions < 1
             puts prompt
@@ -463,66 +185,6 @@ class Slot
         end
     end
 end
-
-class Util
-    # returns 'green, purple, and red' for ['green', 'purple', 'red']
-    def self.english_list(list)
-        if list.size == 0
-            'nothing'
-        elsif list.size == 1
-            list.first
-        else
-            list[0...-1].join(', ') + ' and ' + list[-1]
-        end
-    end
-
-    # Tries to get which Words are relevant to a phrasing
-    # by looking at the start and end of the regex match
-    def self.get_words_from_phrasing(utterance, phrasing)
-        match = phrasing.match(utterance.line)
-        start_pos = match.begin(0)
-        end_pos = match.end(0)
-        words = []
-        utterance.reduce(0){|sum,n| words << [n, sum]; sum + n.length + 1}
-        words.select{|word| start_pos <= word[1] && word[1] < end_pos}.map{|word| word[0]}
-    end
-
-    def self.affirmation_words
-        ['okay', 'alright', 'sure', 'cool']
-    end
-
-    def self.sorry_words
-        ['sorry', 'apologies', 'excuse me', 'truly sorry', 'my apologies', 'pardon me', 'my sincerest apologies', 'begging forgiveness']
-    end
-
-    def self.yes_set
-        ['yes', 'yep', 'yeah', 'yea', 'aye']
-    end
-
-    def self.certain_set
-        ['definitely', 'certainly', 'absolutely', 'positively']
-    end
-
-    # Note: 'not' is definitely not the same as 'no', but it often works out the same
-    def self.no_set
-        ['no', 'nope', 'nah', 'nay', 'negative', 'nix', 'never', 'not']
-    end
-
-    def self.amplifier_set
-        ['really', 'very', 'quite', 'extremely', 'abundantly', 'copiously']
-    end
-
-    def self.change_set
-        ['change', 'actually', 'replace', 'switch', 'swap']
-    end
-end
-
-# TODO: when extracting multiple slots at a time, need to ignore overlapped values. e.g.:
-# say cities for departure and destination are the same, and say
-# the phrasings for destination are   [/#{value}/, /from #{value}/]
-# and the phrasings for departure are [/#{value}/, /to #{value}/]
-# we ignore instances of /#{value}/ completely and only look for the ones with 'from' or 'to'
-# and if it doesn't find anything, have a special disambiguation_response
 
 # Prompts for more than one piece of information at a time
 class MultiSlot
@@ -578,14 +240,14 @@ class MultiSlot
         return utterance
     end
 
-# is there a need for different thresholds for different variables?
+    # is there a need for different thresholds for different variables?
 
-# first, extract stuff
-# if there were successful extractions, ground them
-# then, if it looks like they're trying to replace (past change_threshold), do replace reaction
-# else, if there's anything in the extract to clarify_threshold range, do did_you_say reaction
-# else, if there were no extractions and it looks like they're trying to escape (past escape_threshold?), do escape
-# else, if there were no extractions, do extracted_nothing reaction
+    # first, extract stuff
+    # if there were successful extractions, ground them
+    # then, if it looks like they're trying to replace (past change_threshold), do replace reaction
+    # else, if there's anything in the extract to clarify_threshold range, do did_you_say reaction
+    # else, if there were no extractions and it looks like they're trying to escape (past escape_threshold?), do escape
+    # else, if there were no extractions, do extracted_nothing reaction
     def run_cycle
         @reprompt = false
         while(!remaining_vars_needed.empty?)
@@ -618,27 +280,61 @@ class MultiSlot
         return @selections
     end
 
-# TODO: need to get rid of phrasing overlaps
+    # TODO: need to get rid of phrasing overlaps
     def extract(utterance, variables)
-        extractions= {}
-        variables.each do |variable|
-            line = utterance.line
-            extraction = variable.extract(utterance)
-            top_extraction = variable.top_extraction(extraction)
-            extractions[variable] = top_extraction
-            #if top_extractions.size == 0
-            #    confidence = 0
-            #else
-            #    confidence = calc_confidence(utterance, top_extractions)
-            #end
-            #top_extractions.confidence = confidence
-            #puts "(DEBUG) confidence: " + confidence.to_s if DEBUG
+        if(variables.length == 1) then # Single-slot extract
+            return extract_single_slot(utterance, variables[0])
+        else # Multi-slot extract
+            return extract_multi_slot(utterance, variables)
         end
+    end
+
+    def extract_single_slot(utterance, variable)
+        extractions = {}
+        extraction = variable.extract(utterance)
+        top_extraction = variable.top_extraction(extraction)
+        extractions[variable] = top_extraction
         return extractions
     end
 
-# sets @selections and grounds them,
-# will be called by change_reaction and did_you_say_reaction
+    # Checks all the slots and attempts to assign values to each
+    # If there are overlaps that can't be resolved: return true 
+    # and revert to default
+    def extract_multi_slot(utterance, variables)
+        # run all the varibles extract methods
+        # make sure to know which words are used
+        # if the words are overlapped, return false
+        extractions = {}
+        variables.each do |variable|
+            extraction = variable.extract(utterance)
+            top_extraction = variable.top_extraction(extraction)
+            extractions[variable] = top_extraction
+        end
+
+
+
+
+
+
+
+
+        
+        return extractions
+    end
+
+    # Checks to see if the any words are used by multiple slots
+    def is_overlapping(extractions)
+        top = Set.new
+        extractions.each do |extract, value|
+            return true if top.include? value
+            top.add(value)
+        end
+        return false
+    end
+
+
+    # sets @selections and grounds them,
+    # will be called by change_reaction and did_you_say_reaction
     def selection_reaction(selections)
         # set the selections
         selections.each do |variable, selection|
@@ -705,7 +401,7 @@ class MultiSlot
         (confidence + extractions.map(&:confidence).max) / 2
     end
 
-# TODO: change to be same format as did_you_say_reaction
+    # TODO: change to be same format as did_you_say_reaction
     def change_reaction(extractions)
         puts "change reaction" if DEBUG
         puts apologetic(change_prompt(extractions))
@@ -725,7 +421,7 @@ class MultiSlot
         end
     end
 
-# same format as change_reaction
+    # same format as change_reaction
     def did_you_say_reaction(extractions)
         puts "did you say reaction" if DEBUG
         puts apologetic(did_you_say_prompt(extractions))
@@ -749,7 +445,7 @@ class MultiSlot
                 selections = extractions
                 confirmation_likelihood(selections, answer.confidence)
             end
-# does this comparison work?
+            # does this comparison work?
             if extractions == next_extractions
                 selections = extractions
                 confirmation_likelihood(selections, next_extractions.values.map(&:confidence).min)
@@ -779,16 +475,16 @@ class MultiSlot
         end
     end
 
-# when overlapped, increase probability of both values in both variables (or could be more than 2), but not as big an increase (for n overlap, could divide by n)
+    # when overlapped, increase probability of both values in both variables (or could be more than 2), but not as big an increase (for n overlap, could divide by n)
 
-# replacements: look for "change", "actually", "replace", etc. and name of variable in selections
-# coder will need to be able to put in synonyms for name of variable
+    # replacements: look for "change", "actually", "replace", etc. and name of variable in selections
+    # coder will need to be able to put in synonyms for name of variable
     def extract_change(utterance, variables)
         change_hash = {}
         variables.each do |variable|
             if utterance.include? variable.name && !(utterance | Util.change_set).empty?
                 extractions = variable.extract(utterance)
-# TODO: make threshold also consider confidence in variable.name and change_set
+                # TODO: make threshold also consider confidence in variable.name and change_set
                 if !extractions.empty? && extractions.confidence >= change_threshold
                     change_hash[variable] = extractions
                 end
@@ -866,6 +562,14 @@ class MultiSlot
         end
     end
 end
+
+# TODO: when extracting multiple slots at a time, need to ignore overlapped values. e.g.:
+# say cities for departure and destination are the same, and say
+# the phrasings for destination are   [/#{value}/, /from #{value}/]
+# and the phrasings for departure are [/#{value}/, /to #{value}/]
+# we ignore instances of /#{value}/ completely and only look for the ones with 'from' or 'to'
+# and if it doesn't find anything, have a special disambiguation_response
+
 
 # class SlotGroup ?
 # is there a need for a tree class or will that just fall out of how you write it?
