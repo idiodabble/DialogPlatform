@@ -223,8 +223,7 @@ class Variable
         p = phrasing.downcase
         l_len = sub_str.length
         p_len = phrasing.length
-        return p_len if l_len == 0
-        return l_len if p_len == 0
+        return p_len if (l_len == 0 or p_len == 0)
         m = Array.new(l_len + 1) {Array.new(p_len + 1)}
 
         (0..l_len).each {|i| m[i][0] = i}
