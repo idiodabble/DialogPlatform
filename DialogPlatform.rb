@@ -17,18 +17,22 @@
 # 3. Add synonyms
 # 4. Write MultiSlot version of extract, which needs to detect overlaps (same values in different variables)
 
+# also, do multi-word prefixes work?
+
 # Steff TODO list:
 
 # 1. Finish testing did_you_say_reaction, then port everything over to change_reaction
-# 2. Write omments / ruby documentation
-# 3. Change the rejection/confirmation/increase likelihood methods?
-# 4. test MultiSlot with variables with max_selections higher than 1
+# 2. test MultiSlot with variables with max_selections higher than 1
+# 3. create a default variable_name prefix of some sort
+
+# 4. change the rejection/confirmation/increase likelihood methods?
 # 5. maybe replace @name_thresholds with name_threshold() methods?
 
 # Bonus TODO list for if we have time:
 
-# 1. write a Platform class, higher than Slot or MultiSlot, that will take advantage of methods like preconditions and next_slot
-# 2. be able to look up things and give the user options, i.e. "There are no flights at this time" or "We have flights available for $500, $400 and $300"
+# 1. Make a proper RDOC. For now, the description of the system in the writeup + comments should be enough
+# 2. write a Platform class, higher than Slot or MultiSlot, that will take advantage of methods like preconditions and next_slot
+# 3. be able to look up things and give the user options, i.e. "There are no flights at this time" or "We have flights available for $500, $400 and $300"
 
 DEBUG = true
 
@@ -363,7 +367,9 @@ class Slot
     def run_cycle
         @utterances << get_input
         while(true)
-            extract(@utterances.last)
+            @extraction = @variable.extract(@utterances.last)
+            p @extraction if DEBUG
+            @selection = @variable.top_extraction(@extraction)
             print "Selection confidence: " if DEBUG
             p @selection.confidence if DEBUG
             if @selection.confidence >= @extract_threshold
@@ -451,17 +457,14 @@ class Slot
     # sets @extractions, @selections and @confidence
     # returns 0 if it couldn't find anything at all,
     # otherwise returns confidence probability
-    def extract(utterance)
-        @extraction = @variable.extract(utterance)
-        p @extraction if DEBUG
-        @selection = @variable.top_extraction(@extraction)
+    #def extract(utterance)
     #    if @extraction.size == 0
     #        @confidence = 0
     #    else
     #        @confidence = calc_confidence(@selection)
     #    end
         #puts "(DEBUG) confidence: " + @confidence.to_s if DEBUG
-    end
+    #end
 
     def apologetic(prompt)
         if @repetitions < 1
@@ -862,7 +865,6 @@ class MultiSlot
         false
     end
 
-# TODO
     def final_selection_reaction
     end
 
