@@ -9,7 +9,7 @@ class Utterance < Array
 
     def select_slice(start, length)
         sliced = self.slice(start, length)
-        sliced.join(' '), sliced
+        return sliced.join(' '), sliced
     end
 end
 
@@ -21,7 +21,7 @@ class Extraction < Array
 end
 
 class Value < String
-    attr_accessor :prior, :confidence, :phrasings, :response, :next_slot, :prefixes, :suffixes, :synonyms
+    attr_accessor :prior, :confidence, :phrasings, :response, :next_slot, :prefixes, :suffixes, :synonyms, :word_indexes
     
     # Params:
     # +name+:: a string such as 'San Francisco'
@@ -32,7 +32,7 @@ class Value < String
     # +synonyms+:: words that we might expect in place of the value, e.g. "San Fran"
     # +response+:: response given to user if the user selects this value
     # +next_slot+:: next Slot to go to if the user selects this value
-    def initialize(name, prior, confidence = prior, prefixes = [], suffixes = [], synonyms = [], response = nil, next_slot = nil)
+    def initialize(name, prior, confidence = prior, prefixes = [], suffixes = [], synonyms = [], response = nil, next_slot = nil, word_indexes = nil)
         @prior = prior; @confidence = confidence; @prefixes = prefixes; @suffixes = suffixes; @synonyms = synonyms; @response = response; @next_slot = next_slot
         super(name)
     end
@@ -148,15 +148,18 @@ class Variable
         extraction = Extraction.new
 
         @values.each do |value|
-            confidence = calc_confidence(utterance, value)
+            confidence, words = calc_confidence(utterance, value)
             #value.confidence = confidence * confidence.abs
-            value.confidence = (value.confidence + 2 * confidence) / 3 unless confidence == 0
+            if confidence > 0
+                value.confidence = (value.confidence + 2 * confidence) / 3
+                value.word_indexes = words
+            end
             puts "(DEBUG) value: #{value} confidence: #{confidence} new value confidence: #{value.confidence}" if DEBUG
             extraction << value
         end
         #scores_to_prob(extractions)
         #puts "(DEBUG) extractions: " + extractions.to_s if DEBUG
-        return extraction, 
+        return extraction
     end
 
     # given an utterance (which is an array of Word, with the .line method to get rid of parenthetical likelihoods)
@@ -172,23 +175,24 @@ class Variable
 
     def calc_confidence(utterance, value)
         phrasings = get_possible_phrasings(utterance, value)
-        max = Hash.new
+        max_score = 0
+        max_words_used = []
         phrasings.each do |phrase|
             score = 0
             phrase_len = phrase.length
             (1..utterance.length).each do |num_words|
                 (0..(utterance.length - num_words)).each do |start_index|
-                    sub_str = utterance.select_slice(start_index, start_index + num_words)
-                    score = edit_distance(sub_str, phrase)
+                    sub_str, words = utterance.select_slice(start_index, start_index + num_words)
+                    score = edit_distance(sub_str, phrase, value)
                     # p "score", score, "phrase", phrase, "value", value
-                    if score > max['score'] then
-                        max['score'] = score
-                        max['words_used'] = words
+                    if score > max_score then
+                        max_score = score
+                        max_words_used = words
                     end
                 end
             end
         end
-        max
+        return max_score, max_words_used
     end
 
     # Checks input for possible phrasings for the input
@@ -214,7 +218,7 @@ class Variable
         valid_phrasings
     end
 
-    def edit_distance(sub_str, phrasing)
+    def edit_distance(sub_str, phrasing, value)
         l = sub_str.downcase
         p = phrasing.downcase
         l_len = sub_str.length
@@ -237,7 +241,7 @@ class Variable
                 end
             end
         end
-        len = [l_len, p_len].max
+        len = [l_len, value.length].max
         1 - (m[l_len][p_len].to_f/len)
     end
 

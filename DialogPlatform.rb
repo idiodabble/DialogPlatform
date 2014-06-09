@@ -308,6 +308,7 @@ class MultiSlot
         variables.each do |variable|
             extraction = variable.extract(utterance)
             top_extraction = variable.top_extraction(extraction)
+            p top_extraction
             extractions[variable] = top_extraction
         end
 
@@ -318,7 +319,7 @@ class MultiSlot
 
 
 
-        
+
         return extractions
     end
 
