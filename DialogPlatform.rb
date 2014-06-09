@@ -185,12 +185,10 @@ class Variable
             score = 0
             phrase_len = phrase.length
             (1..utterance.length).each do |num_words|
-                # p "length", utterance.length if DEBUG
                 (0..(utterance.length - num_words)).each do |start_index|
                     sub_str = utterance.select_slice(start_index, start_index + num_words)
                     score = edit_distance(sub_str, phrase)
-                    # p "score", score, "phrase", phrase, "value", value if DEBUG
-                    # p "", "" if DEBUG
+                    # p "score", score, "phrase", phrase, "value", value
                     max_score = [max_score, score].max
                 end
             end
