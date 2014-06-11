@@ -1,30 +1,5 @@
 require './Util'
 
-# An Utterance is an array of Words.
-# Call line to get a string version of the utterance.
-class Utterance < Array
-    def line
-        self.join(' ')
-    end
-
-    def select_slice(start, length)
-        sliced = self.slice(start, length)
-        indexes = Array.new
-        (start..(start + length - 1)).each do |index|
-            indexes << index
-        end
-        #p "line", self.line, "length", length, "indexes", indexes
-        return sliced.join(' '), indexes
-    end
-end
-
-# An Extraction is an Array of Value
-class Extraction < Array
-    def confidence
-        self.map(&:confidence).min
-    end
-end
-
 class Value < String
     attr_accessor :prior, :confidence, :phrasings, :response, :next_slot, :prefixes, :suffixes, :synonyms, :word_indexes
     
@@ -43,13 +18,10 @@ class Value < String
     end
 end
 
-# Every word has an associated confidence that it is what we think it is.
-# Confidence must be in the range of (0, 1]
-class Word < String
-    attr_accessor :confidence
-    def initialize(word, confidence)
-        @confidence = confidence
-        super(word)
+# An Extraction is an Array of Value
+class Extraction < Array
+    def confidence
+        self.map(&:confidence).min
     end
 end
 
@@ -274,7 +246,6 @@ class Variable
         p "original score", score, "altered score", alt_score if DEBUG
         return alt_score
     end
-
 
     def scores_to_prob(extraction)
         sum = 0

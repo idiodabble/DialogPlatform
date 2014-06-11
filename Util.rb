@@ -1,5 +1,3 @@
-require './Misc'
-
 class Util
     def self.extract_yes_no(utterance)
         if utterance.size == 1
@@ -71,11 +69,3 @@ class Util
         ['change', 'actually', 'replace', 'switch', 'swap']
     end
 end
-
-# TODO: when extracting multiple slots at a time, need to ignore overlapped values. e.g.:
-# say cities for departure and destination are the same, and say
-# the phrasings for destination are   [/#{value}/, /from #{value}/]
-# and the phrasings for departure are [/#{value}/, /to #{value}/]
-# we ignore instances of /#{value}/ completely and only look for the ones with 'from' or 'to'
-# and if it doesn't find anything, have a special disambiguation_response
-
