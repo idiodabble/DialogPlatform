@@ -1,6 +1,7 @@
 require './Platform'
 
 depart_var = Variable.new('departure', ['San Diego', 'San Francisco', 'Los Angeles', 'Sacramento'])
+depart_var.prefixes = 3
 depart_slot = Slot.new(depart_var, ['What city are you departing from?', 'Where would you like to depart from?', 'What\'s your departure?'])
 
 dest_var = Variable.new('destination', ['San Diego', 'San Francisco', 'Los Angeles', 'Sacramento'])

@@ -1,7 +1,7 @@
 require './Util'
 
 class Value < String
-    attr_accessor :prior, :confidence, :phrasings, :response, :next_slot, :prefixes, :suffixes, :synonyms, :word_indexes
+    attr_accessor :prior, :confidence, :response, :next_slot, :prefixes, :suffixes, :synonyms, :word_indexes
     
     # Params:
     # +name+:: a string such as 'San Francisco'
@@ -13,8 +13,20 @@ class Value < String
     # +response+:: response given to user if the user selects this value
     # +next_slot+:: next Slot to go to if the user selects this value
     def initialize(name, prior, confidence = prior, prefixes = [], suffixes = [], synonyms = [], response = nil, next_slot = nil, word_indexes = nil)
-        @prior = prior; @confidence = confidence; @prefixes = prefixes; @suffixes = suffixes; @synonyms = synonyms; @response = response; @next_slot = next_slot
+        @prior = prior; @confidence = confidence; self.prefixes = prefixes; self.suffixes = suffixes; self.synonyms = synonyms; @response = response; @next_slot = next_slot
         super(name)
+    end
+
+    def prefixes=(arg)
+        @prefixes = arg.is_a?(Array) ? arg : [arg]
+    end
+
+    def suffixes=(arg)
+        @suffixes = arg.is_a?(Array) ? arg : [arg]
+    end
+
+    def synonyms=(arg)
+        @synonyms = arg.is_a?(Array) ? arg : [arg]
     end
 end
 
@@ -26,7 +38,7 @@ class Extraction < Array
 end
 
 class Variable
-    attr_accessor :name, :values, :max_selection_size, :selection, :prefixes, :suffixes
+    attr_accessor :names, :values, :max_selection_size, :selection, :prefixes, :suffixes
 
     # Params:
     # +name+:: name of the variable, such as 'departure city'
@@ -39,20 +51,12 @@ class Variable
     #    but 'San Diego, San Francisco, and Los Angeles' is not
     # +prefixes+:: words that we might expect to see before a value, e.g. "from" or "to"
     # +suffixes+:: words that we might expect to see after a value, e.g. "airport"
-    def initialize(name, values, max_selection_size = 1, prefixes = [], suffixes = [])
-        @name = name
-        @values = values.map {|value|
-            if value.is_a?(String)
-                Value.new(value, 1.0 / values.size)
-            elsif value.is_a?(Value)
-                Value
-            else
-                raise 'Expecting a String or Value'
-            end
-        }
+    def initialize(names, values, max_selection_size = 1, prefixes = [], suffixes = [])
         @max_selection_size = max_selection_size
-        @prefixes = prefixes
-        @suffixes = suffixes
+        self.names = names
+        self.values = values
+        self.prefixes = prefixes
+        self.suffixes = suffixes
     end
 
     def prob_mass
@@ -93,28 +97,30 @@ class Variable
         nil
     end
 
-    def did_you_say_prompt(extraction)
-        "I didn't hear you, did you say #{Util.english_list(extraction)}?"
+    def names=(arg)
+        @names = arg.is_a?(Array) ? arg : [arg]
+        @name = @names.first
     end
 
-    def prefixes=(arr)
-        if(arr.kind_of?(Array)) then
-            @prefixes = arr
-        elsif(arr.kind_of?(String)) then
-            @prefixes = [arr]
-        else
-            p "ERROR, Prefixes are not in usable form."
-        end
+    def values=(arg)
+        @values = arg.is_a?(Array) ? arg : [arg]
+        @values = values.map {|value|
+            if value.is_a?(String)
+                Value.new(value, 1.0 / values.size)
+            elsif value.is_a?(Value)
+                Value
+            else
+                raise 'Expecting a String or Value'
+            end
+        }
     end
 
-    def suffixes=(arr)
-        if(arr.kind_of?(Array)) then
-            @suffixes = arr
-        elsif(arr.kind_of?(String)) then
-            @suffixes = [arr]
-        else
-            p "ERROR, Suffixes are not in usable form."
-        end
+    def prefixes=(arg)
+        @prefixes = arg.is_a?(Array) ? arg : [arg]
+    end
+
+    def suffixes=(arg)
+        @suffixes = arg.is_a?(Array) ? arg : [arg]
     end
 
     # return array of hash of value, confidence and position

@@ -15,7 +15,7 @@ class Slot
     # utterances: array containing every utterance the user has said. An utterance is an array of Words
     def initialize(variable, prompts, select_threshold = 0.6, clarify_threshold = 0.3)
         @variable = variable
-        @prompts = prompts
+        self.prompts = prompts
         @select_threshold = select_threshold
         @clarify_threshold = clarify_threshold
         @utterances = []
@@ -30,6 +30,12 @@ class Slot
         run_cycle
     end
 
+    def prompts=(arg)
+        @prompts = arg.is_a?(Array) ? arg : [arg]
+        #@prompt = @prompts.first
+    end
+
+    # TODO: make prompt follow the names example?
     def prompt
         if @prompts.is_a? Array
             puts @prompts[@run_count % @prompts.size]
@@ -78,9 +84,13 @@ class Slot
         return @selection
     end
 
+    def did_you_say_prompt
+        "I didn't hear you, did you say #{Util.english_list(extraction)}?"
+    end
+
     def did_you_say_reaction(extraction)
         puts "did you say reaction" if DEBUG
-        puts apologetic(@variable.did_you_say_prompt(extraction))
+        puts apologetic(did_you_say_prompt(extraction))
         @utterances << get_input
         utterance = @utterances.last
         answer = Util.extract_yes_no(utterance)

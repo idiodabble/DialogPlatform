@@ -19,7 +19,9 @@ require './MultiSlot'
 # 3. create a default variable_name prefix of some sort
 
 # 4. change the rejection/confirmation/increase likelihood methods?
-# 5. maybe replace @name_thresholds with name_threshold() methods?
+# 5. Support for numbers?
+# 6. Variable's default_value?
+# 7. maybe replace @name_thresholds with name_threshold() methods?
 
 # Bonus TODO list for if we have time:
 
