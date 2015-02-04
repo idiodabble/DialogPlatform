@@ -111,7 +111,9 @@ class Synonym
 
     def clone(stage = @stage)
         syn = Synonym.new(self.phrases.clone, self.prefixes.clone, self.suffixes.clone, stage)
-        syn.prefix_matched = self.prefix_matched; syn.phrase_matched = self.phrase_matched; syn.suffix_matched = self.suffix_matched
+        syn.prefix_matched = self.prefix_matched.clone
+        syn.phrase_matched = self.phrase_matched.clone
+        syn.suffix_matched = self.suffix_matched.clone
         return syn
     end
 
@@ -122,19 +124,19 @@ class Synonym
     # returns list of synonyms, if word doesn't match, return empty list
     # otherwise return new Synonym with word added in
     def match_word(word)
-        puts 'matching word!!!!'
-        puts @stage
+        print 'matching word, ', @stage, "\n"
         syns = []
-        case @stage
         # can_prefix means you can start/continue a prefix or just start the phrase
         # can_suffix means you've finished matching and can continue the phrase or just start a suffix
-        when :can_prefix, :on_prefix
+        if [:can_prefix, :on_prefix].include? @stage
             new_syn = match_prefix(word)
             syns << new_syn if !new_syn.nil?
-        when :can_prefix, :on_phrase, :can_suffix
+        end
+        if [:can_prefix, :on_phrase, :can_suffix].include? @stage
             new_syn = match_phrase(word)
             syns << new_syn if !new_syn.nil?
-        when :can_suffix, :on_suffix, :finished
+        end
+        if [:can_suffix, :on_suffix, :finished].include? @stage
             new_syn = match_suffix(word)
             syns << new_syn if !new_syn.nil?
         end
@@ -147,7 +149,7 @@ class Synonym
 # should probably test this out first
 
     def match_prefix(word)
-        puts 'matching prefix!!!'
+        puts 'match_prefix'
         prefixes = @prefixes.select{|prefix| prefix.first == word}
         return nil if prefixes.empty?
         prefixes = prefixes.map{|prefix| prefix.drop(1)}
@@ -156,25 +158,30 @@ class Synonym
         syn.prefixes = prefixes.select{|prefix| !prefix.empty?}
         syn.prefix_matched << word
         return syn
-        #return Synonym.new(@phrases, prefixes.select{|prefix| !prefix.empty?}, @suffixes, stage)
     end
 
-# TODO: @phrase_matched/suffix_matched
-
     def match_phrase(word)
+        puts 'match_phrase'
         phrases = @phrases.select{|phrase| phrase.first == word}
         return nil if phrases.empty?
         phrases = phrases.map{|phrase| phrase.drop(1)}
         stage = phrases.find{|phrase| phrase.empty?} ? :can_suffix : :on_phrase
-        return Synonym.new(phrases.select{|prefix| !prefix.empty?}, [], @suffixes, stage)
+        syn = self.clone(stage)
+        syn.phrases = phrases.select{|phrase| !phrase.empty?}
+        syn.phrase_matched << word
+        return syn
     end
 
     def match_suffix(word)
+        puts 'match_suffix'
         suffixes = @suffixes.select{|suffix| suffix.first == word}
         return nil if suffixes.empty?
         suffixes = suffixes.map{|suffix| suffix.drop(1)}
         stage = suffixes.find{|suffix| suffix.empty?} ? :finished : :on_suffix
-        return Synonym.new(@phrases, [], suffixes.select{|prefix| !prefix.empty?}, stage)
+        syn = self.clone(stage)
+        syn.suffixes = suffixes.select{|suffix| !suffix.empty?}
+        syn.suffix_matched << word
+        return syn
     end
     
     protected :match_prefix, :match_phrase, :match_suffix
