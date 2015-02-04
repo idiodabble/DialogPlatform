@@ -98,13 +98,14 @@ end
 # Prefixes and Suffixes are used to increase the confidence...
 class Synonym
 
-    attr_accessor :phrases, :prefixes, :suffixes, :phrase_matched, :phrefix_matched, :suffix_matched
+    attr_accessor :phrases, :prefixes, :suffixes, :phrase_matched, :prefix_matched, :suffix_matched
 
 # how to handle nil arg?
     def initialize(phrases, prefixes = [], suffixes = [], stage = :can_prefix)
         self.phrases = Phrase.listify(phrases)
         self.prefixes = Phrase.listify(prefixes)
         self.suffixes = Phrase.listify(suffixes)
+        self.phrase_matched = []; self.prefix_matched = []; self.suffix_matched = []
         @stage = stage
     end
 

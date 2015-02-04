@@ -188,11 +188,11 @@ class Edge
         else
             string = "(#{self.from_id},#{self.to_id}) "
         end
-        return string + self.phrase
+        return string + self.phrase.formatted
     end
 end
 
-class Word
+class Word < String
 
     attr_accessor :word, :probability
 
@@ -201,7 +201,7 @@ class Word
         self.probability = probability
     end
 
-    def to_str
+    def formatted
         # don't include probability of it's certain to be it
         if self.probability == 1.0
             return self.word
@@ -237,6 +237,10 @@ class Phrase < Array
     def self.listify(arg)
         return [arg] if arg.is_a? Phrase
         return Util.listify(arg).map{|x| x.is_a?(Phrase) ? x : Phrase.new(x)}
+    end
+
+    def formatted
+        return self.map{|word| word.formatted}.join(' ')
     end
 
     def to_str
