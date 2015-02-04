@@ -117,18 +117,19 @@ class WordLattice
 
     def find_helper(node, synonyms)
         matches = []
-        puts "---NODE---"
+        #puts "---NODE---"
         node.edges_out.each do |edge|
-            print "edge ", edge, "\n"
+            #print "edge ", edge, "\n"
             synonyms.each do |syn|
-                new_syns = self.match_phrase(syn, edge.phrase)
-                puts new_syns
+                new_syns = WordLattice.match_phrase(syn, edge.phrase)
+                #puts new_syns
+# TODO syns can start anywhere, not just start_node
                 matches.concat find_helper(@nodes[edge.to_id], new_syns)
             end
         end
 #TODO stop repeating work
         synonyms.each do |syn|
-            if syn.finished_matching? && !node.edges_out.find{|edge| !self.match_phrase(syn, edge.phrase).empty?}
+            if syn.finished_matching? && !node.edges_out.find{|edge| !WordLattice.match_phrase(syn, edge.phrase).empty?}
                 matches << syn
             end
         end
@@ -137,13 +138,13 @@ class WordLattice
 
     # gotta handle blank as well
 
-    def match_phrase(synonym, phrase)
-        return synonym if phrase.empty?
+    # return synonyms that match all the words in the phrase or synonyms that are finished and match as many words as possible in the phrase
+    def self.match_phrase(synonym, phrase)
+        return [synonym] if phrase.empty?
         matches = []
-        phrase = phrase.drop(1)
         new_syns = synonym.match_word(phrase.first)
         new_syns.each do |new_syn|
-            new_matches = self.match_phrase(new_syn, phrase)
+            new_matches = self.match_phrase(new_syn, phrase.drop(1))
             if new_matches.empty?
                 matches << new_syn if new_syn.finished_matching?
             else

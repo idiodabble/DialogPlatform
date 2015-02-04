@@ -118,13 +118,13 @@ class Synonym
     end
 
     def finished_matching?
-        return @stage == :finished || @stage == :on_end
+        return @stage == :finished || @stage == :can_suffix
     end
 
     # returns list of synonyms, if word doesn't match, return empty list
     # otherwise return new Synonym with word added in
     def match_word(word)
-        print 'matching word, ', @stage, "\n"
+        #print 'matching word, ', @stage, "\n"
         syns = []
         # can_prefix means you can start/continue a prefix or just start the phrase
         # can_suffix means you've finished matching and can continue the phrase or just start a suffix
@@ -149,7 +149,8 @@ class Synonym
 # should probably test this out first
 
     def match_prefix(word)
-        puts 'match_prefix'
+        #puts 'match_prefix'
+        #p word
         prefixes = @prefixes.select{|prefix| prefix.first == word}
         return nil if prefixes.empty?
         prefixes = prefixes.map{|prefix| prefix.drop(1)}
@@ -161,8 +162,11 @@ class Synonym
     end
 
     def match_phrase(word)
-        puts 'match_phrase'
+        #puts 'match_phrase'
+        #p @phrases
+        #p word
         phrases = @phrases.select{|phrase| phrase.first == word}
+        #p phrases
         return nil if phrases.empty?
         phrases = phrases.map{|phrase| phrase.drop(1)}
         stage = phrases.find{|phrase| phrase.empty?} ? :can_suffix : :on_phrase
@@ -173,7 +177,7 @@ class Synonym
     end
 
     def match_suffix(word)
-        puts 'match_suffix'
+        #puts 'match_suffix'
         suffixes = @suffixes.select{|suffix| suffix.first == word}
         return nil if suffixes.empty?
         suffixes = suffixes.map{|suffix| suffix.drop(1)}
