@@ -194,19 +194,19 @@ end
 
 class Word < String
 
-    attr_accessor :word, :probability
+    attr_accessor :probability
 
     def initialize(word, probability = 1.0)
-        self.word = word
         self.probability = probability
+        super(word)
     end
 
     def formatted
         # don't include probability of it's certain to be it
         if self.probability == 1.0
-            return self.word
+            return self.to_s
         else
-            return "#{self.word}#{self.probability.to_s[1..-1]}"
+            return "#{self.to_s}#{self.probability.to_s[1..-1]}"
         end
     end
 
