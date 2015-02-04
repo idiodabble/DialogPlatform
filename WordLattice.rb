@@ -1,4 +1,5 @@
 require './Util'
+require 'set'
 
 # probabilities leading out of a node must sum to <= 1
 
@@ -115,17 +116,19 @@ class WordLattice
         return self.find_helper(@start_node, synonyms)
     end
 
+# TODO maybe make syns set and implement comparable to avoid duplicates... would have to treat Words as different that have different probs... or maybe it's enough to directly avoid the prefix duplicates?
+
     def find_helper(node, synonyms)
         matches = []
         #puts "---NODE---"
         node.edges_out.each do |edge|
             #print "edge ", edge, "\n"
+            new_syns = synonyms.clone
             synonyms.each do |syn|
-                new_syns = WordLattice.match_phrase(syn, edge.phrase)
+                new_syns.concat WordLattice.match_phrase(syn, edge.phrase)
                 #puts new_syns
-# TODO syns can start anywhere, not just start_node
-                matches.concat find_helper(@nodes[edge.to_id], new_syns)
             end
+            matches.concat find_helper(@nodes[edge.to_id], new_syns)
         end
 #TODO stop repeating work
         synonyms.each do |syn|

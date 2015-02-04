@@ -3,7 +3,7 @@ require './Slot'
 str00 = '(0,1) wettbwerbs (0,1) wettbwerb (1,2) bedingten.4 preissturz.7'
 str0 = '(1,2) wettbwerbs (1,2) wettbwerb (2,3) bedingten.4 preissturz.7'
 str = '(0,1) einen zurich (1,2) wettbwerbs (1,2) wettbwerb (2,3) bedingten.4 preissturz.7'
-lattice = WordLattice.new(str00)
+lattice = WordLattice.new(str)
 #lattice.nodes.each{|node_pair| puts node_pair[0], node_pair[1].to_s}
 #lattice.nodes.each{|node_pair| puts node_pair[0], node_pair[1].multiline_to_s}
 lattice.nodes.each{|node_pair|
