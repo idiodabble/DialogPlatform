@@ -1,209 +1,182 @@
+require 'set'
 require './Util'
-require './Input'
-require './Variable'
-
-DEBUG = false
+require './WordLattice'
 
 class Slot
-    # prompts: an array of possible prompts
-    #    a prompt is what the system tells the user at the start of the slot
-    #    such as 'Where would you like to depart from?'
-    # select_threshold: number between 0 and 1, user input will be accepted if confidence is above this threshold 
-    # clarify_threshold: number between 0 and 1, clarification will be requested if confidence is above this threshold 
-    #    and below select_threshold. If confidence is below clarify_threshold, the run method will return false
-    #    and let somebody else figure out what to do
-    # utterances: array containing every utterance the user has said. An utterance is an array of Words
-    def initialize(variable, prompts, select_threshold = 0.6, clarify_threshold = 0.3)
-        @variable = variable
-        self.prompts = prompts
-        @select_threshold = select_threshold
-        @clarify_threshold = clarify_threshold
-        @utterances = []
-        @run_count = 0
-        @repetitions = 0
-        @confidence = -1
+
+    def initialize(choices, sufficient_num_choices = choices.size, sufficient_groups = [])
+        self.choices = Util.listify(choices)
+        @num_choices_made = 0
+        @sufficient_num_choices = sufficient_num_choices
+        @choices_made = set()
+        @sufficient_groups = sufficient_groups
     end
 
-    def run
-        @run_count += 1
+    def finished?
+        if @num_choices_made >= @sufficient_num_choices
+            return true
+        elsif @sufficient_groups.find{|group| group.subset? @choices_made}
+            return true
+        else
+            return false
+        end
+    end
+
+    def run(platform)
         prompt
-        run_cycle
+        get_input
+        respond
     end
 
-    def prompts=(arg)
-        @prompts = arg.is_a?(Array) ? arg : [arg]
-        #@prompt = @prompts.first
+    # has default form of prompt for choices it has
+    # can handle bubbling of responses here
+
+end
+
+class Choice
+
+    # response: given when an option is chosen, will replace default Slot response
+    attr_accessor :name, :response, :confidence, :options, :prefixes, :suffixes
+
+    # should be given a SystemUtterance
+    attr_accessor :choice_made_response, :partial_choice_response, :did_you_say_response
+
+    def initialize(options, sufficient_num_options = 1, sufficient_groups = [])
+        self.options = Util.listify(options)
+        @num_options_chosen = 0
+        @sufficient_num_options = sufficient_num_options
+        @options_chosen = set()
+        @sufficient_groups = sufficient_groups
     end
 
-    # TODO: make prompt follow the names example?
-    def prompt
-        if @prompts.is_a? Array
-            puts @prompts[@run_count % @prompts.size]
+    def finished?
+        if @num_options_chosen >= @sufficient_num_options
+            return true
+        elsif @sufficient_groups.find{|group| group.subset? @options_chosen}
+            return true
         else
-            puts @prompts
+            return false
         end
     end
 
-    def get_input
-        p @variable.values.map{|value| [value.confidence, value]} if DEBUG
-        line = gets.chomp
-        utterance = Utterance.new(line)
-        if utterance.find{|word| word.confidence <= 0 || word.confidence > 1}
-            puts "Malformed input: Confidence should be in the range (0,1]. Please respond again."
-            return get_input
+    # need method for extracting options from input, including fill-in-the-blank
+    # need method for changing option likelihoods / choosing them
+
+# how about "would you like to undo your choice?"
+
+end
+
+# when analyzing an input, return a list of options and their confidences... which is distinct from this-is-what-will-actually-be-selected if I select...
+
+# "Did you say blah?"
+# yes -> NOW change probability
+# no -> ???
+
+# no... we should change probability right away, but it should be done in a different method, so multislot can prevent it if need be
+
+
+# should have the bubble up system for every kind of response
+
+class Option
+    # each synonym should be a Phrase
+    attr_accessor :name, :synonyms, :prior, :confidence, :prefixes, :suffixes
+
+    # each of these should be given a SystemUtterance
+    attr_accessor :chosen_response, :not_chosen_response, :did_you_say_response
+
+    # if synonyms is empty, then this option is fill-in-the-blank
+    def initialize(name, synonyms)
+        synonyms = [] if synonyms.nil?
+        self.synonyms = Util.listify(synonyms)
+        # by default prefixes and suffixes apply to all synonyms
+        self.synonyms.each{|syn| syn = Synonym.new(syn, prefixes, suffxies) if !syn.is_a? Synonym}
+        self.name = name
+    end
+end
+
+# An Option is in essence a specific idea, and this idea may be representable in different ways, each of those ways synonymous. Hence, we use the Synonym class to represent how an Option might be worded. An Option may have multiple Synonyms, and each Synonym can map to multiple real-language phrasings.
+# Prefixes and Suffixes are used to increase the confidence...
+class Synonym
+
+    attr_accessor :phrases, :prefixes, :suffixes, :phrase_matched, :phrefix_matched, :suffix_matched
+
+# how to handle nil arg?
+    def initialize(phrases, prefixes = [], suffixes = [], stage = :can_prefix)
+        self.phrases = Phrase.listify(phrases)
+        self.prefixes = Phrase.listify(prefixes)
+        self.suffixes = Phrase.listify(suffixes)
+        @stage = stage
+    end
+
+    def clone(stage = @stage)
+        syn = Synonym.new(self.phrases.clone, self.prefixes.clone, self.suffixes.clone, stage)
+        syn.prefix_matched = self.prefix_matched; syn.phrase_matched = self.phrase_matched; syn.suffix_matched = self.suffix_matched
+        return syn
+    end
+
+    def finished_matching?
+        return @stage == :finished || @stage == :on_end
+    end
+
+    # returns list of synonyms, if word doesn't match, return empty list
+    # otherwise return new Synonym with word added in
+    def match_word(word)
+        puts 'matching word!!!!'
+        puts @stage
+        syns = []
+        case @stage
+        # can_prefix means you can start/continue a prefix or just start the phrase
+        # can_suffix means you've finished matching and can continue the phrase or just start a suffix
+        when :can_prefix, :on_prefix
+            new_syn = match_prefix(word)
+            syns << new_syn if !new_syn.nil?
+        when :can_prefix, :on_phrase, :can_suffix
+            new_syn = match_phrase(word)
+            syns << new_syn if !new_syn.nil?
+        when :can_suffix, :on_suffix, :finished
+            new_syn = match_suffix(word)
+            syns << new_syn if !new_syn.nil?
         end
-        return utterance
+        return syns
     end
 
-    def run_cycle
-        @utterances << get_input
-        while(true)
-            @extraction = @variable.extract(@utterances.last)
-            p @extraction if DEBUG
-            @selection = @variable.top_extraction(@extraction)
-            @confidence = @selection.confidence
-            print "Selection confidence: " if DEBUG
-            p @confidence if DEBUG
-            if @confidence >= @select_threshold
-                break
-            elsif @confidence >= @clarify_threshold
-                #TODO: need to increase likelihood of all extractions, not just top
-                break if did_you_say_reaction(@selection)
-            else
-                # returns nil so coder deccides whether to use run_clarification or do something else,
-                # because maybe the user is trying to jump
-                if escape(@utterances.last, @selection)
-                    return nil
-                else
-                    extracted_nothing_reaction 
-                end
-            end
-            @repetitions += 1
-        end
-        selection_reaction
-        return @selection
+# TODO fill-in-the-blank
+# will need a max number of words, and just needs to modify match_phrase
+
+# should probably test this out first
+
+    def match_prefix(word)
+        puts 'matching prefix!!!'
+        p prefixes
+        prefixes = @prefixes.select{|prefix| prefix.first == word}
+        p prefixes
+        return nil if prefixes.empty?
+        prefixes = prefixes.map{|prefix| prefix.drop(1)}
+        stage = prefixes.find{|prefix| prefix.empty?} ? :can_prefix : :on_prefix
+        syn = self.clone(stage)
+        syn.prefixes.select!{|prefix| !prefix.empty?}
+        syn.prefix_matched << word
+        return syn
+        #return Synonym.new(@phrases, prefixes.select{|prefix| !prefix.empty?}, @suffixes, stage)
     end
 
-    def did_you_say_prompt
-        "I didn't hear you, did you say #{Util.english_list(extraction)}?"
+# TODO: @phrase_matched/suffix_matched
+
+    def match_phrase(word)
+        phrases = @phrases.select{|phrase| phrase.first == word}
+        return nil if phrases.empty?
+        phrases = phrases.map{|phrase| phrase.drop(1)}
+        stage = phrases.find{|phrase| phrase.empty?} ? :can_suffix : :on_phrase
+        return Synonym.new(phrases.select{|prefix| !prefix.empty?}, [], @suffixes, stage)
     end
 
-    def did_you_say_reaction(extraction)
-        puts "did you say reaction" if DEBUG
-        puts apologetic(did_you_say_prompt(extraction))
-        @utterances << get_input
-        utterance = @utterances.last
-        answer = Util.extract_yes_no(utterance)
-        next_extraction = @variable.top_extraction(@variable.extract(utterance))
-
-        # determines what selections are they trying to correct to
-        selections = nil
-        @confidence = 0
-        if answer == 'no'
-            rejection_likelihood(extraction, answer.confidence)
-            if next_extraction != extraction
-                selection = next_extraction
-                increase_likelihood(selection)
-            end
-        else
-            if answer == 'yes'
-                selection = extraction
-                confirmation_likelihood(selection, answer.confidence)
-            end
-            # does this comparison work?
-            repetition = Extraction.new(extraction & next_extraction)
-            if !repetition.empty?
-                selection = repetition
-                @confidence = selection.confidence * (repetition.size + 4) / (extraction.size + 4)
-                confirmation_likelihood(selection, @confidence)
-                # TODO: problem: say max_selection_size is 2 and Values are number in range [0,20]
-                #                if they say "14" we should accept 14, rather than thinking they're also trying to do "1" and "4"
-                #                however, if they say a bunch of different numbers and only one is in common, we don't want to think
-                #                that we're doing well
-            end
-        end
-        p selection if DEBUG
-        print "confidence: " if DEBUG
-        p @confidence if DEBUG
-
-        # determines what to do with these selections
-        if selection == nil
-            puts apologetic(dont_understand_prompt)
-            # TODO: slightly increase next_extractions_hash.likelihood
-        else
-            if @confidence >= @select_threshold
-                @selection = selection
-                return true
-            elsif @confidence >= @clarify_threshold
-                return did_you_say_reaction(selection)
-            else
-                puts apologetic(dont_understand_prompt)
-                # TODO: slightly increase next_extractions_hash.likelihood
-            end
-        end
-        return false
+    def match_suffix(word)
+        suffixes = @suffixes.select{|suffix| suffix.first == word}
+        return nil if suffixes.empty?
+        suffixes = suffixes.map{|suffix| suffix.drop(1)}
+        stage = suffixes.find{|suffix| suffix.empty?} ? :finished : :on_suffix
+        return Synonym.new(@phrases, [], suffixes.select{|prefix| !prefix.empty?}, stage)
     end
-
-    def rejection_likelihood(extraction, confidence)
-        extraction.each do |value|
-            #variable.prob_mass += extraction.likelihood * confidence
-            value.confidence -= confidence
-        end
-    end
-
-    def increase_likelihood(extraction)
-        extraction.each do |value|
-            #variable.prob_mass += extraction.likelihood * confidence
-            value.confidence += value.confidence / 2
-        end
-    end
-
-    def confirmation_likelihood(extraction, confidence)
-        puts "confirmation likelihood" if DEBUG
-        extraction.each do |value|
-            #variable.prob_mass += extraction.likelihood * confidence
-            value.confidence += value.confidence * confidence
-            puts "#{value}: #{value.confidence}" if DEBUG
-        end
-    end
-
-    # this is how the coder can escape the Slot, in case the user is trying to exit or jump elsewhere
-    # TODO: create an example of escape in either Reservation.rb or a higher level class
-    def escape(utterance, extractions)
-        false
-    end
-
-    def extracted_nothing_prompt
-        apologetic(dont_understand_prompt)
-    end
-
-    def dont_understand_prompt
-        "I don't understand what you said."
-    end
-
-    def extracted_nothing_reaction
-        extracted_nothing_prompt
-        repetition_likelihood(@extraction)
-        @utterances << get_input
-    end
-
-    def selection_reaction
-        responses = @selection.map(&:response).compact
-        responses.each{|response| puts response}
-        # more succinct in following runs
-        if @run_count > 1
-            puts @variable.grounding(@selection, 2)
-        else
-            puts @variable.grounding(@selection, 1)
-        end
-    end
-
-    def apologetic(prompt)
-        if @repetitions < 1
-            puts prompt
-        else
-            #puts Util.sorry_words[@repetitions % Util.sorry_words.size].capitalize + ', ' + prompt[0].downcase + prompt[1..-1]
-            puts Util.sorry_words[(@repetitions - 1) % Util.sorry_words.size].capitalize + ', ' + prompt
-        end
-    end
+    
+    protected :match_prefix, :match_phrase, :match_suffix
 end

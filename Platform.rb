@@ -1,31 +1,60 @@
-require './Slot'
-require './MultiSlot'
+class Platform
 
-# EasyDial
-# A Ruby platform for creating new dialog systems
-# Designed to let users easily make new dialog systems with a platform that is heavily modifiable, so it can be customized to the individual dialog system's needs.
-# Author:: Daniel Steffee and Jeremy Hines
+    def initialize()
+        @slots = [] # 0th element is the oldest slot
+        @inputs = [] # 0th element is the oldest input
+        @input = nil # most recent input, equivalent to @inputs.last
+    end
 
-# Jeremy TODO LIST:
+    def close(slot)
+        @slots.delete(slot)
+    end
 
-# 1. Make prefixes and suffixes work again
-# 2. Add synonyms
-# 3. Add multi-word prefixes
+    def run(slot)
+        finished = slot.run(self)
+        while(!finished)
+            # should have higher thresholds
+            jump_slot = self.find_likely_slot
+            unless jump_slot.nil?
+            # try it, .respond(@input)? or (@choice) or () based on find_likely_slot
+            # if not worked, go back to slot - but...
+                # could have changed slot, now we're in it entirely
+                # could DYS, but need to go back to slot!
+                # not a problem: run does not loop. Whenever it fails to get info, it returns false, otherwise it goes till it gets everything
+                jump_slot.respond(self)
 
-# Steff TODO list:
+                # markers for changing option ~ markers for changing previous options
+            end
+            finished = slot.run(self)
+        end
+        @slots << slot
+    end
 
-# 1. Make extract not change likelihoods
-# 2. test change_reaction, then test MultiSlot with variables with max_selections higher than 1
-# 3. create a default variable_name prefix of some sort
+    # maybe first input after slot finishes is still in slot, in case of "no that's wrong!", but if it says...
+    # "SFO" chosen for departure. Now when would you like to fly?
+    # or do we put a pause in there? A time paused?
+    # do we implement an optional is-that-correct slot?
 
-# 4. change the rejection/confirmation/increase likelihood methods?
-# 5. Support for numbers?
-# 6. Variable's default_value?
-# 7. maybe replace @name_thresholds with name_threshold() methods?
+    # should definitely implement a time limit and a no-response-in-time response
+    # combined with empty prompt, this'd allow hidden pauses in which to do things
 
-# Bonus TODO list for if we have time:
+    def run_alone(slot)
+        finished = slot.run(self)
+        while(!finished)
+            finished = slot.run(self)
+        end
+    end
 
-# 1. Make a proper RDOC. For now, the description of the system in the writeup + comments should be enough
-# 2. write a Platform class, higher than Slot or MultiSlot, that will take advantage of methods like preconditions and next_slot
-# 3. be able to look up things and give the user options, i.e. "There are no flights at this time" or "We have flights available for $500, $400 and $300"
+    def find_likely_slot
+        # need to handle "no go back" first, and if so return @slots.last
+        # otherwise look for slots that have matching options, going backwards (recent first)
+        @slots.reverse.each do |possible_slot|
+            # means I need meets_threshold methods in Slot
+        end
+    end
 
+    def get_input()
+        @input << gets.chomp # temporary
+        @inputs << @input
+    end
+end
