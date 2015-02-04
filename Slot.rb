@@ -148,14 +148,12 @@ class Synonym
 
     def match_prefix(word)
         puts 'matching prefix!!!'
-        p prefixes
         prefixes = @prefixes.select{|prefix| prefix.first == word}
-        p prefixes
         return nil if prefixes.empty?
         prefixes = prefixes.map{|prefix| prefix.drop(1)}
         stage = prefixes.find{|prefix| prefix.empty?} ? :can_prefix : :on_prefix
         syn = self.clone(stage)
-        syn.prefixes.select!{|prefix| !prefix.empty?}
+        syn.prefixes = prefixes.select{|prefix| !prefix.empty?}
         syn.prefix_matched << word
         return syn
         #return Synonym.new(@phrases, prefixes.select{|prefix| !prefix.empty?}, @suffixes, stage)
