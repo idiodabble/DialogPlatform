@@ -1,0 +1,68 @@
+# top down
+
+    # a Choice has multiple Options or is fill-in-the-blank style
+    # a Slot has one or more Choices
+
+    # number/list of required options, number/list of required choices
+    # too many options chosen?
+
+# should be easier to add another option to an already completed choice than to change an option?
+# slots, choices can be completed, options selected
+
+# did you mean?
+# yes ->
+    # if choices not filled, re Prompt
+    # if choices filled, response
+# no ->
+    # re Prompt
+# no, I meant blah
+    # if sure about blah, go to -yes-
+    # if not sure, go to DYS again, with additional grounding
+# otherwise
+    # just give up and go back to original prompt
+    # (confusion grounded reprompt same as not having any idea of what was said after first input)
+
+# if sure about one option, not sure another, can do grounding then DYS
+# if not sure about two options, then: follow up with next DYS if they respond to first with yes, otherwise just reboot
+# simultaneous DYS's?
+
+# I didn't understand, what did you say? > re Slot without Prompt
+
+# every Option has a prior, a confidence, and a chosen bool
+
+# Platform.open (allow multiple args), run, close (allow multiple args)
+# given input, for all opened Slots compare to all Choices
+# up probabilities on choices, down on others
+
+# if you say SanFran to departure, that shouldn't increase SanFran prob for dest, should it??
+# could say that detected options can only change a single choice's probability
+
+# if a Slot has one choice partially answered and needs more options, and another choice that needs answers, which do you ask about first? Ask about both??
+
+# something found? select them
+    # if enough, 
+        # can do DYS but higher threshold, otherwise done
+    # if not, ask for rest
+# something maybe found? ask about choices
+    # if yes, go to something found part
+    # if no, go to nothing found part
+# nothing found?
+    # up probabilities on slot we think we're jumping to, or say "confused"
+    # probability of them correcting a just answered choice or Slot should be higher
+    # could go back slot by slot, just choosing first one past threshold? in that case do I need .open()?
+    # did-you-mean for jump slot is same threshold as regular, and anything less is nothing
+
+# need a "no go back" jump
+# if jump wrong, need a "no go back"
+
+# add copy slot function and slot refresh function
+
+# grounding for going into slot from confused or from going back to it after jumping
+
+# after a jump, basically goes to that Slot's run, and the run that we were on gets put on a queue
+# so instead of calling .run(slot1), .run(slot2)... could make method for putting them all on queue then run the first one
+
+
+# Choice options should be distinct; Slot choices with overlap need distinguishing factors
+
+# for paring down questions, should initial version of question be special cased? or create hash/list for any number of them?
