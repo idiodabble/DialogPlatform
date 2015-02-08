@@ -97,15 +97,14 @@ end
 # An Option is in essence a specific idea, and this idea may be representable in different ways, each of those ways synonymous. Hence, we use the Synonym class to represent how an Option might be worded. An Option may have multiple Synonyms, and each Synonym can map to multiple real-language phrasings.
 # Prefixes and Suffixes are used to increase the confidence...
 class Synonym
-
     attr_accessor :phrases, :prefixes, :suffixes, :phrase_matched, :prefix_matched, :suffix_matched
 
 # how to handle nil arg?
     def initialize(phrases, prefixes = [], suffixes = [], stage = :can_prefix)
-        self.phrases = Phrase.listify(phrases)
-        self.prefixes = Phrase.listify(prefixes)
-        self.suffixes = Phrase.listify(suffixes)
-        self.phrase_matched = []; self.prefix_matched = []; self.suffix_matched = []
+        self.phrases = Set.new(Phrase.listify(phrases))
+        self.prefixes = Set.new(Phrase.listify(prefixes))
+        self.suffixes = Set.new(Phrase.listify(suffixes))
+        self.phrase_matched = Phrase.new(); self.prefix_matched = Phrase.new(); self.suffix_matched = Phrase.new()
         @stage = stage
     end
 
@@ -117,15 +116,32 @@ class Synonym
         return syn
     end
 
+    def subsumed_by?(other)
+        if (self.phrase_matched.empty? || self.phrase_matched.subsumed_by?(other.phrase_matched)) &&
+            (self.prefix_matched.empty? || self.prefix_matched.subsumed_by?(other.prefix_matched)) &&
+            (self.suffix_matched.empty? || self.suffix_matched.subsumed_by?(other.suffix_matched)) &&
+            (![:can_prefix, :on_prefix].include?(@stage) || self.prefixes.subset?(other.prefixes)) &&
+            ([:on_suffix, :finished].include?(@stage) || self.phrases.subset?(other.phrases)) &&
+            ([:finished].include?(@stage) || self.suffixes.subset?(other.suffixes))
+            return true
+        else
+            return false
+        end
+    end
+
+    def subsumes?(other)
+        return other.subsumed_by?(self)
+    end
+
     def finished_matching?
         return @stage == :finished || @stage == :can_suffix
     end
 
-    # returns list of synonyms, if word doesn't match, return empty list
+    # returns set of synonyms, if word doesn't match, return empty list
     # otherwise return new Synonym with word added in
     def match_word(word)
         #print 'matching word, ', @stage, "\n"
-        syns = []
+        syns = PrioritySet.new()
         # can_prefix means you can start/continue a prefix or just start the phrase
         # can_suffix means you've finished matching and can continue the phrase or just start a suffix
         if [:can_prefix, :on_prefix].include? @stage
@@ -146,8 +162,6 @@ class Synonym
 # TODO fill-in-the-blank
 # will need a max number of words, and just needs to modify match_phrase
 
-# should probably test this out first
-
     def match_prefix(word)
         #puts 'match_prefix'
         #p word
@@ -156,7 +170,7 @@ class Synonym
         prefixes = prefixes.map{|prefix| prefix.drop(1)}
         stage = prefixes.find{|prefix| prefix.empty?} ? :can_prefix : :on_prefix
         syn = self.clone(stage)
-        syn.prefixes = prefixes.select{|prefix| !prefix.empty?}
+        syn.prefixes = Set.new(prefixes.select{|prefix| !prefix.empty?})
         syn.prefix_matched << word
         return syn
     end
@@ -171,7 +185,7 @@ class Synonym
         phrases = phrases.map{|phrase| phrase.drop(1)}
         stage = phrases.find{|phrase| phrase.empty?} ? :can_suffix : :on_phrase
         syn = self.clone(stage)
-        syn.phrases = phrases.select{|phrase| !phrase.empty?}
+        syn.phrases = Set.new(phrases.select{|phrase| !phrase.empty?})
         syn.phrase_matched << word
         return syn
     end
@@ -183,10 +197,12 @@ class Synonym
         suffixes = suffixes.map{|suffix| suffix.drop(1)}
         stage = suffixes.find{|suffix| suffix.empty?} ? :finished : :on_suffix
         syn = self.clone(stage)
-        syn.suffixes = suffixes.select{|suffix| !suffix.empty?}
+        syn.suffixes = Set.new(suffixes.select{|suffix| !suffix.empty?})
         syn.suffix_matched << word
         return syn
     end
     
     protected :match_prefix, :match_phrase, :match_suffix
+    alias :< :subsumed_by?
+    alias :> :subsumes?
 end

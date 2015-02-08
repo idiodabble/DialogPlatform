@@ -20,6 +20,8 @@ require 'set'
 # (1,2) wettbwerb.25 \
 # (2,3) bedingten.4 preissturz.7
 
+# TODO make WordLattice extend/implement UserUtterance?
+
 class WordLattice
 
     def nodes
@@ -116,19 +118,19 @@ class WordLattice
         return self.find_helper(@start_node, synonyms)
     end
 
-# TODO maybe make syns set and implement comparable to avoid duplicates... would have to treat Words as different that have different probs... or maybe it's enough to directly avoid the prefix duplicates?
-
     def find_helper(node, synonyms)
-        matches = []
+        matches = PrioritySet.new()
         #puts "---NODE---"
         node.edges_out.each do |edge|
             #print "edge ", edge, "\n"
             new_syns = synonyms.clone
             synonyms.each do |syn|
-                new_syns.concat WordLattice.match_phrase(syn, edge.phrase)
+                ms = WordLattice.match_phrase(syn, edge.phrase)
+                new_syns |= ms
+                #new_syns |= WordLattice.match_phrase(syn, edge.phrase)
                 #puts new_syns
             end
-            matches.concat find_helper(@nodes[edge.to_id], new_syns)
+            matches |= find_helper(@nodes[edge.to_id], new_syns)
         end
 #TODO stop repeating work
         synonyms.each do |syn|
@@ -143,15 +145,15 @@ class WordLattice
 
     # return synonyms that match all the words in the phrase or synonyms that are finished and match as many words as possible in the phrase
     def self.match_phrase(synonym, phrase)
-        return [synonym] if phrase.empty?
-        matches = []
+        return PrioritySet.new([synonym]) if phrase.empty?
+        matches = PrioritySet.new()
         new_syns = synonym.match_word(phrase.first)
         new_syns.each do |new_syn|
             new_matches = self.match_phrase(new_syn, phrase.drop(1))
             if new_matches.empty?
                 matches << new_syn if new_syn.finished_matching?
             else
-                matches.concat new_matches
+                matches |= new_matches
             end
         end
         return matches
@@ -222,7 +224,7 @@ class Phrase < Array
 
     #attr_accessor :words
 
-    def initialize(words)
+    def initialize(words = [])
     #    self.words = words
         words = words.split if words.is_a? String
         words = Util.listify(words)
@@ -230,13 +232,17 @@ class Phrase < Array
         super(words)
     end
 
-    #def first
-    #    return self.words.first
-    #end
+    def ==(other)
+        return self.size == other.size && !self.zip(other).find{|x, y| x != y}
+    end
 
-    #def drop_first
-    #    return Phrase.new(self.words.drop(1))
-    #end
+    def subsumed_by?(other)
+        return self == other && !self.zip(other).find{|my_word,their_word| my_word.probability > their_word.probability}
+    end
+
+    def subsumes?(other)
+        return other.subsumed_by?(self)
+    end
 
     def self.listify(arg)
         return [arg] if arg.is_a? Phrase
@@ -252,4 +258,6 @@ class Phrase < Array
     end
 
     alias :to_s :to_str
+    alias :< :subsumed_by?
+    alias :> :subsumes?
 end
